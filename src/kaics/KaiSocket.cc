@@ -636,6 +636,9 @@ ssize_t KaiSocket::Subscriber(const std::string& message, RECVCALLBACK callback)
 {
     if (this->connect() < 0)
         return -2;
+#ifndef _WIN32
+    signal(SIGPIPE, signalCatch);
+#endif
     Message msg = {};
     const size_t Size = HEAD_SIZE + sizeof(Message::Payload::stat);
     bool flag = false;
@@ -722,9 +725,12 @@ ssize_t KaiSocket::Publisher(const std::string& topic, const std::string& payloa
         LOGE("Payload/topic is null!");
     } else {
         this->m_network.run_ = false;
-        m_callbacks.clear();
+        // m_callbacks.clear();
         g_maxTimes = 0;
     }
+#ifndef _WIN32
+    signal(SIGPIPE, signalCatch);
+#endif
     const int maxLen = 256;
     Message msg = {};
     memset(&msg, 0, sizeof(Message));
