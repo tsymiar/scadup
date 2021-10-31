@@ -14,7 +14,6 @@ if("${ANDROID}" EQUAL "1")
     include_directories(kaics)
 else()
     set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/../../lib)
-    add_definitions(-DFULLY_COMPILE)
     include_directories(..)
 endif()
 

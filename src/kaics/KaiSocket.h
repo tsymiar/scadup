@@ -65,12 +65,7 @@ public:
     KaiSocket() = default;
     virtual ~KaiSocket() = default;
 public:
-#ifdef FULLY_COMPILE
-    explicit KaiSocket(unsigned short lstnprt);
-    KaiSocket(const char* srvip, unsigned short srvport);
-#else
     int Initialize(unsigned short lstnprt);
-#endif
     int Initialize(const char* srvip, unsigned short srvport);
     static KaiSocket& GetInstance();
     // workflow
@@ -88,23 +83,6 @@ public:
     // callback
     void registerCallback(KAISOCKHOOK func);
     void appendCallback(KAISOCKHOOK func);
-#ifdef FULLY_COMPILE
-    void appendCallback(const std::function<int(KaiSocket*)>&);
-    void setResponseHandle(void(*func)(uint8_t*, size_t), uint8_t*, size_t&);
-    void setRequestHandle(void(*func)(uint8_t*, size_t), uint8_t*, size_t&);
-public:
-    struct SharedKaiSocket : std::enable_shared_from_this<KaiSocket> {
-        std::shared_ptr<KaiSocket> GetSharedInstance()
-        {
-            return shared_from_this();
-        }
-    };
-    template<typename T, typename... Args>
-    static std::shared_ptr<T> GetSharedInstance(Args&&... args)
-    {
-        return std::make_shared<T>(std::forward<Args>(args)...);
-    }
-#endif
     // private members should be deleted in release version head-file
 private:
     struct Network {

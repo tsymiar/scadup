@@ -50,5 +50,11 @@ Makefile
 
 # custom
 .DS_Store
+.vs
+.vscode
 build
 lib
+Debug
+jniLibs
+*.exe
+*.so
