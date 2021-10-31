@@ -25,10 +25,10 @@ typedef int socklen_t;
 #endif
 #define usleep(u) Sleep((u)/1000)
 #define write(a,b,c) ::send(a,(char*)(b),c,0)
+#define signal(_1,_2) {}
 #else
 #define WSACleanup()
 #endif
-
 static bool g_thrStat = false;
 static unsigned int g_maxTimes = 100;
 volatile unsigned int g_thrNo_ = 0;
@@ -221,8 +221,12 @@ int proxyhook(KaiSocket* kai)
     memset(&msg, 0, Size);
     int len = kai->recv(reinterpret_cast<uint8_t*>(&msg), Size);
     if (len > 0) {
-        LOGI("Message from %s [%s], MQ topic: '%s', len = %d",
-            KaiSocket::G_KaiRole[msg.head.etag], msg.data.stat, msg.head.topic, len);
+        if (msg.head.etag >= NONE && msg.head.etag <= SUBSCRIBE) {
+            LOGI("message from %s [%s], MQ topic: '%s', len = %d",
+                KaiSocket::G_KaiRole[msg.head.etag], msg.data.stat, msg.head.topic, len);
+        } else {
+            LOGI("msg tag = %d[%u]", msg.head.etag, msg.head.size);
+        }
     }
     return len;
 }
@@ -636,12 +640,10 @@ ssize_t KaiSocket::Subscriber(const std::string& message, RECVCALLBACK callback)
 {
     if (this->connect() < 0)
         return -2;
-#ifndef _WIN32
     signal(SIGPIPE, signalCatch);
-#endif
     Message msg = {};
     const size_t Size = HEAD_SIZE + sizeof(Message::Payload::stat);
-    bool flag = false;
+    volatile bool flag = false;
     do {
         memset(&msg, 0, Size);
         ssize_t len = ::recv(m_network.socket, reinterpret_cast<char*>(&msg), Size, 0);
@@ -725,12 +727,9 @@ ssize_t KaiSocket::Publisher(const std::string& topic, const std::string& payloa
         LOGE("Payload/topic is null!");
     } else {
         this->m_network.run_ = false;
-        // m_callbacks.clear();
+        if (m_callbacks.size() > 0) m_callbacks.clear();
         g_maxTimes = 0;
     }
-#ifndef _WIN32
-    signal(SIGPIPE, signalCatch);
-#endif
     const int maxLen = 256;
     Message msg = {};
     memset(&msg, 0, sizeof(Message));
@@ -743,6 +742,7 @@ ssize_t KaiSocket::Publisher(const std::string& topic, const std::string& payloa
         LOGE("Connect failed!");
         return -2;
     }
+    signal(SIGPIPE, signalCatch);
     auto* message = new(std::nothrow) uint8_t[msgLen];
     if (message == nullptr) {
         LOGE("Message malloc failed!");
