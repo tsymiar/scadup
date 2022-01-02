@@ -1,4 +1,4 @@
-#include "KaiSocket.h"
+#include "scadop.h"
 
 #ifdef _WIN32
 #include <Ws2tcpip.h>
@@ -15,7 +15,7 @@
 #include <thread>
 #include <cmath>
 #define LOG_TAG "KaiSocket"
-#include "utils/logging.h"
+#include "../utils/logging.h"
 
 #ifdef _WIN32
 #define close(s) {closesocket(s);WSACleanup();}
