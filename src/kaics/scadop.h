@@ -5,9 +5,10 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <map>
 #include <functional>
 
-enum KaiRoles {
+enum KaiMethods {
     NONE = 0,
     PRODUCER,
     CONSUMER,
@@ -61,7 +62,7 @@ public:
 #pragma pack()
     typedef int(*KAISOCKHOOK)(KaiSocket*);
     typedef void(*RECVCALLBACK)(const Message&);
-    static char G_KaiRole[][0xa];
+    static char G_KaiMethod[][0xa];
     KaiSocket() = default;
     virtual ~KaiSocket() = default;
 public:
@@ -69,43 +70,44 @@ public:
     int Initialize(const char* srvip, unsigned short srvport);
     static KaiSocket& GetInstance();
     // workflow
-    int start();
-    int connect();
+    int Start(KaiMethods = SERVER);
+    int Connect();
+    ssize_t Recv(uint8_t* buff, size_t size);
     //
     int Broker();
     ssize_t Publisher(const std::string& topic, const std::string& payload, ...);
     ssize_t Subscriber(const std::string& message, RECVCALLBACK callback = nullptr);
-    // packaged
-    static void wait(unsigned int tms);
-    ssize_t send(const uint8_t* data, size_t len);
-    ssize_t recv(uint8_t* buff, size_t size);
-    ssize_t broadcast(const uint8_t* data, size_t len);
     // callback
     void registerCallback(KAISOCKHOOK func);
     void appendCallback(KAISOCKHOOK func);
     // private members should be deleted in release version head-file
+    static void wait(unsigned int tms);
 private:
     struct Network {
-        SOCKET socket;
-        std::string IP;
-        unsigned short PORT;
-        volatile bool run_ = false;
-        bool client = false;
-        Header flag;
-    } m_network;
-    std::mutex m_lock = {};
-    std::vector<Network> m_networks{};
+        SOCKET socket = 0;
+        std::string IP{};
+        unsigned short PORT = 0;
+        volatile bool active = false;
+        KaiMethods method = SERVER;
+        Header header{};
+        std::deque<const Message*>* message{};
+        std::vector<Network> clients{};
+    };
+    std::map<SOCKET, Network> m_networks{};
     std::vector<int(*)(KaiSocket*)> m_callbacks{};
-    static std::deque<const Message*>* m_msgQue;
+    std::mutex m_lock = {};
+    SOCKET m_socket = 0;
 private:
-    uint64_t setSsid(const Network& network, SOCKET socket = 0);
-    ssize_t writes(Network, const uint8_t*, size_t);
-    bool checkSsid(SOCKET key, uint64_t ssid);
-    bool running();
-    void finish();
-    void handleNotify(Network& network);
-    void runCallback(KaiSocket* sock, KAISOCKHOOK func);
+    ssize_t send(const uint8_t* data, size_t len);
+    ssize_t broadcast(const uint8_t* data, size_t len);
+    static ssize_t writes(Network&, const uint8_t*, size_t);
     void setTopic(const std::string& topic, Header& header);
-    int produce(const Message& msg);
+    uint64_t setSsid(const Network& network, SOCKET socket = 0);
+    bool checkSsid(SOCKET key, uint64_t ssid);
+    bool online();
+    void finish();
+    void notify();
+    void callback(KAISOCKHOOK func);
     int consume(Message& msg);
+    int produce(const Message& msg);
 };

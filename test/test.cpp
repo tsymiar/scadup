@@ -8,10 +8,10 @@
 using namespace std;
 
 int main(int argc, char* argv[]) {
-    KaiRoles role = SERVER;
+    KaiMethods method = SERVER;
     if (argc > 1) {
         string argv1 = string(argv[1]);
-        role = (argv1 == "-C" ? CLIENT :
+        method = (argv1 == "-C" ? CLIENT :
             (argv1 == "-S" ? SUBSCRIBE :
                 (argv1 == "-P" ? PUBLISH :
                     (argv1 == "-B" ? BROKER : SERVER))));
@@ -21,25 +21,25 @@ int main(int argc, char* argv[]) {
     if (child == 0) {
 #endif
         KaiSocket kai;
-        const int PORT = 9999;
+        unsigned short PORT = 9999;
         const char* IP = "127.0.0.1";
-        if (role >= CLIENT) {
+        if (method >= CLIENT) {
             kai.Initialize(IP, PORT);
         } else {
-            kai.Initialize(nullptr, PORT);
+            kai.Initialize(PORT);
         }
-        cout << argv[0] << ": run as [" << role << "](" << KaiSocket::G_KaiRole[role] << ")" << endl;
+        cout << argv[0] << ": run as [" << method << "](" << KaiSocket::G_KaiMethod[method] << ")" << endl;
         string topic = "topic";
         if (argc > 2) {
             topic = string(argv[2]);
         }
         string payload = "a123+/";
-        switch (role) {
+        switch (method) {
         case CLIENT:
-            kai.connect();
+            kai.Connect();
             break;
         case SERVER:
-            kai.start();
+            kai.Start();
             break;
         case BROKER:
             kai.Broker();

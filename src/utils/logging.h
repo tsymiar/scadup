@@ -6,7 +6,7 @@
 #include <stdarg.h>
 #include <string.h>
 #ifdef _WIN32
-inline const char* basename(const char* file) {
+inline const char* basename(char* file) {
     size_t len = strlen(file);
     static char* base = new char[len];
     for (size_t i = 0; i < len; i++) { if (file[i] == '/' || file[i] == '\\') { memcpy(base, file + i + 1, len - i); memset(base + len - i, 0, 1); } }
@@ -14,13 +14,13 @@ inline const char* basename(const char* file) {
 }
 #else
 #include <libgen.h>
-#pragma GCC diagnostic ignored "-Wwritable-strings"
+// #pragma GCC diagnostic ignored "-Wwritable-strings"
 #endif
 #ifdef __ANDROID__
 #include <android/log.h>
-#define LOGI(fmt, ...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG,"(%s:%d)[%s]: " fmt, basename(__FILE__), __LINE__, __FUNCTION__, ##__VA_ARGS__)
-#define LOGD(fmt, ...) __android_log_print(ANDROID_LOG_DEBUG,LOG_TAG,"(%s:%d)[%s]: " fmt, basename(__FILE__), __LINE__, __FUNCTION__, ##__VA_ARGS__)
-#define LOGE(fmt, ...) __android_log_print(ANDROID_LOG_ERROR,LOG_TAG,"(%s:%d)[%s]: " fmt, basename(__FILE__), __LINE__, __FUNCTION__, ##__VA_ARGS__)
+#define LOGI(fmt, ...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG,"(%s:%d)[%s]: " fmt, basename((char*)__FILE__), __LINE__, __FUNCTION__, ##__VA_ARGS__)
+#define LOGD(fmt, ...) __android_log_print(ANDROID_LOG_DEBUG,LOG_TAG,"(%s:%d)[%s]: " fmt, basename((char*)__FILE__), __LINE__, __FUNCTION__, ##__VA_ARGS__)
+#define LOGE(fmt, ...) __android_log_print(ANDROID_LOG_ERROR,LOG_TAG,"(%s:%d)[%s]: " fmt, basename((char*)__FILE__), __LINE__, __FUNCTION__, ##__VA_ARGS__)
 #else
 #ifdef NOTIME
 #define TIME_ARGS(_ptm)
@@ -33,7 +33,7 @@ inline const char* basename(const char* file) {
 #define LOCATE_ARGS
 #define LOCATE_FORMAT
 #else
-#define LOCATE_ARGS(_module) _module,basename(__FILE__),__LINE__,__FUNCTION__
+#define LOCATE_ARGS(_module) _module,basename((char*)__FILE__),__LINE__,__FUNCTION__
 #define LOCATE_FORMAT "[%s](%s:%d)[%s]: "
 #endif //NOLOCATE
 inline struct tm* times() { time_t now = time(NULL); static struct tm* local = localtime(&now); return local; }
