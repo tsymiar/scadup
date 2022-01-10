@@ -60,14 +60,24 @@ public:
         }
     } __attribute__((packed));
 #pragma pack()
+    struct Network {
+        SOCKET socket = 0;
+        std::string IP{};
+        unsigned short PORT = 0;
+        volatile bool active = false;
+        KaiMethods method = SERVER;
+        Header header{};
+        std::deque<const Message*> message{};
+        std::vector<Network*> clients{};
+    };
     typedef int(*KAISOCKHOOK)(KaiSocket*);
     typedef void(*RECVCALLBACK)(const Message&);
     static char G_KaiMethod[][0xa];
     KaiSocket() = default;
     virtual ~KaiSocket() = default;
 public:
-    int Initialize(unsigned short lstnprt);
-    int Initialize(const char* srvip, unsigned short srvport);
+    int Initialize(unsigned short port);
+    int Initialize(const char* ip, unsigned short port);
     static KaiSocket& GetInstance();
     // workflow
     int Start(KaiMethods = SERVER);
@@ -83,31 +93,21 @@ public:
     // private members should be deleted in release version head-file
     static void wait(unsigned int tms);
 private:
-    struct Network {
-        SOCKET socket = 0;
-        std::string IP{};
-        unsigned short PORT = 0;
-        volatile bool active = false;
-        KaiMethods method = SERVER;
-        Header header{};
-        std::deque<const Message*>* message{};
-        std::vector<Network> clients{};
-    };
     std::map<SOCKET, Network> m_networks{};
     std::vector<int(*)(KaiSocket*)> m_callbacks{};
     std::mutex m_lock = {};
     SOCKET m_socket = 0;
 private:
-    ssize_t send(const uint8_t* data, size_t len);
     ssize_t broadcast(const uint8_t* data, size_t len);
-    static ssize_t writes(Network&, const uint8_t*, size_t);
+    ssize_t writes(SOCKET, const uint8_t*, size_t);
     void setTopic(const std::string& topic, Header& header);
-    uint64_t setSsid(const Network& network, SOCKET socket = 0);
+    uint64_t setSsid(const std::string& addr, int port, SOCKET socket = 0);
     bool checkSsid(SOCKET key, uint64_t ssid);
-    bool online();
+    bool online(SOCKET);
     void finish();
-    void notify();
-    void callback(KAISOCKHOOK func);
+    void notify(SOCKET);
+    void NotifyTask();
+    void CallbackTask(KAISOCKHOOK, SOCKET);
     int consume(Message& msg);
     int produce(const Message& msg);
 };

@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.0)
 
 project(test CXX)
 set(CMAKE_CXX_STANDARD 11)
+set(OPTION "-fPIC -pthread")
 
 set(TARGET test)
 file(GLOB TEST_FILE "*test*.*")
@@ -17,3 +18,5 @@ else()
     file(GLOB SRC_FILE "${KAICS_DIR}/*.c*")
     add_executable(${TARGET} ${SRC_FILE} ${TEST_FILE})
 endif()
+
+target_link_libraries(${TARGET} ${OPTION})

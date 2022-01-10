@@ -2,6 +2,7 @@
 
 #ifndef _WIN32
 #include <unistd.h>
+// #define _USE_FORK_PROCESS_
 #endif
 #include <iostream>
 
@@ -16,7 +17,7 @@ int main(int argc, char* argv[]) {
                 (argv1 == "-P" ? PUBLISH :
                     (argv1 == "-B" ? BROKER : SERVER))));
     }
-#ifndef _WIN32
+#ifdef _USE_FORK_PROCESS_
     pid_t child = fork();
     if (child == 0) {
 #endif
@@ -55,7 +56,7 @@ int main(int argc, char* argv[]) {
         default:
             break;
         }
-#ifndef _WIN32
+#ifdef _USE_FORK_PROCESS_
     } else if (child > 0) {
         cout << "child process " << child << " started" << endl;
     } else {

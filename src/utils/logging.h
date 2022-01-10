@@ -6,7 +6,7 @@
 #include <stdarg.h>
 #include <string.h>
 #ifdef _WIN32
-inline const char* basename(char* file) {
+inline const char* basename(const char* file) {
     size_t len = strlen(file);
     static char* base = new char[len];
     for (size_t i = 0; i < len; i++) { if (file[i] == '/' || file[i] == '\\') { memcpy(base, file + i + 1, len - i); memset(base + len - i, 0, 1); } }
@@ -14,7 +14,7 @@ inline const char* basename(char* file) {
 }
 #else
 #include <libgen.h>
-// #pragma GCC diagnostic ignored "-Wwritable-strings"
+//#pragma GCC diagnostic ignored "-Wwritable-strings"
 #endif
 #ifdef __ANDROID__
 #include <android/log.h>
@@ -38,8 +38,8 @@ inline const char* basename(char* file) {
 #endif //NOLOCATE
 inline struct tm* times() { time_t now = time(NULL); static struct tm* local = localtime(&now); return local; }
 inline void logger(const char* fm, ...) { va_list args; va_start(args, fm); (void)vprintf(fm, args); va_end(args); (void)printf("\n"); }
-#define LOGI(fmt, ...) logger(TIME_FORMAT "[INFO]" LOCATE_FORMAT fmt,TIME_ARGS(times()), LOCATE_ARGS(LOG_TAG),##__VA_ARGS__)
-#define LOGD(fmt, ...) logger(TIME_FORMAT "[DEBUG]" LOCATE_FORMAT fmt,TIME_ARGS(times()), LOCATE_ARGS(LOG_TAG),##__VA_ARGS__)
-#define LOGE(fmt, ...) logger(TIME_FORMAT "[ERROR]" LOCATE_FORMAT fmt,TIME_ARGS(times()), LOCATE_ARGS(LOG_TAG),##__VA_ARGS__)
+#define LOGI(fmt, ...) logger(TIME_FORMAT "[INFO]" LOCATE_FORMAT fmt, TIME_ARGS(times()), LOCATE_ARGS(LOG_TAG),##__VA_ARGS__)
+#define LOGD(fmt, ...) logger(TIME_FORMAT "[DEBUG]" LOCATE_FORMAT fmt, TIME_ARGS(times()), LOCATE_ARGS(LOG_TAG),##__VA_ARGS__)
+#define LOGE(fmt, ...) logger(TIME_FORMAT "[ERROR]" LOCATE_FORMAT fmt, TIME_ARGS(times()), LOCATE_ARGS(LOG_TAG),##__VA_ARGS__)
 #endif //ANDROID
 #endif //KAICS_LOGGING_H
