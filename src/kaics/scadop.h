@@ -92,11 +92,13 @@ public:
     void appendCallback(KAISOCKHOOK func);
     // private members should be deleted in release version head-file
     static void wait(unsigned int tms);
+    void exit();
 private:
     std::map<SOCKET, Network> m_networks{};
     std::vector<int(*)(KaiSocket*)> m_callbacks{};
     std::mutex m_lock = {};
     SOCKET m_socket = 0;
+    bool m_exit = false;
 private:
     ssize_t broadcast(const uint8_t* data, size_t len);
     ssize_t writes(SOCKET, const uint8_t*, size_t);

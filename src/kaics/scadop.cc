@@ -6,6 +6,7 @@
 #else
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <csignal>
 #include <unistd.h>
 #endif
@@ -123,7 +124,8 @@ int KaiSocket::Start(KaiMethods method)
         struct sockaddr_in sin { };
         auto len = static_cast<socklen_t>(sizeof(sin));
         SOCKET recep_socket = m_networks[m_socket].socket =
-            ::accept(listen_socket, reinterpret_cast<struct sockaddr*>(&sin), &len);
+            ::accept(listen_socket,
+                reinterpret_cast<struct sockaddr*>(&sin), &len);
         if ((int)recep_socket < 0) {
             LOGE("Socket accept (%s).",
                 (errno != 0 ? strerror(errno) : std::to_string((int)recep_socket).c_str()));
@@ -150,7 +152,7 @@ int KaiSocket::Start(KaiMethods method)
             m_networks[m_socket].clients.emplace_back(&network);
             ::send(network.socket, (char*)&head, HEAD_SIZE, 0);
             LOGI("Accepted peer(%lu) address [%s:%d] (@ %d/%02d/%02d-%02d:%02d:%02d)",
-                m_networks[m_socket].clients.size(),
+                (unsigned long)m_networks[m_socket].clients.size(),
                 network.IP.c_str(), network.PORT,
                 lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday, lt->tm_hour, lt->tm_min,
                 lt->tm_sec);
@@ -162,7 +164,8 @@ int KaiSocket::Start(KaiMethods method)
                     th.detach();
                 }
             }
-            LOGI("Socket monitor: %d [%lld]; waiting for massage...", recep_socket, network.header.ssid);
+            LOGI("Socket monitor: %d [%lld]; waiting for massage...", recep_socket,
+                network.header.ssid);
             wait(WAIT100ms);
         }
     }
@@ -180,7 +183,7 @@ int KaiSocket::Connect()
     srvaddr.sin_addr.s_addr = inet_addr(ipaddr);
     unsigned int tries = 0;
     const char addrreuse = 0;
-    setsockopt(m_socket, SOL_SOCKET, SO_REUSEADDR, &addrreuse, sizeof(char));
+    setsockopt(network.socket, SOL_SOCKET, SO_REUSEADDR, &addrreuse, sizeof(char));
     bool block = true;
     if (network.method == SUBSCRIBE ||
         network.method == PUBLISH) {
@@ -189,33 +192,36 @@ int KaiSocket::Connect()
     network.method = CLIENT;
     network.active = true;
     LOGI("------ Connecting to %s:%d ------", ipaddr, port);
-    while (::connect(m_socket, (struct sockaddr*)&srvaddr, sizeof(srvaddr)) == (-1)) {
+    while (::connect(network.socket, (struct sockaddr*)&srvaddr, sizeof(srvaddr)) == (-1)) {
         if (tries < g_maxTimes) {
             wait(WAIT100ms * (long)pow(2, tries));
             tries++;
         } else {
             LOGE("Retrying to connect (tries=%d, %s).",
                 tries, (errno != 0 ? strerror(errno) : "No error"));
-            notify(m_socket);
+            notify(network.socket);
             return -1;
         }
     }
+#ifdef HEART_BEAT
     try {
         // heartBeat
         std::thread([&](KaiSocket* kai) {
-            while (kai->online(m_socket)) {
-                if (::send(m_socket, "Kai", 3, 0) <= 0) { // NOLINT(bugprone-lambda-function-name)
+            while (kai->online(network.socket)) {
+                if (::send(network.socket, "Kai", 3, 0) <= 0) {
+                    // NOLINT(bugprone-lambda-function-name)
                     LOGE("Heartbeat to %s:%u arrests.", network.IP.c_str(),
                         network.PORT);
-                    notify(m_socket);
+                    notify(network.socket);
                     break;
                 }
-                KaiSocket::wait(3000); // frequency 3s
+                KaiSocket::wait(30000); // frequency 30s
             }
             }, this).detach();
     } catch (const std::exception& e) {
         LOGE("heartBeat exception: %s", e.what());
     }
+#endif
     try {
         std::thread(&KaiSocket::NotifyTask, this).detach();
     } catch (const std::exception& e) {
@@ -230,7 +236,7 @@ int KaiSocket::Connect()
             LOGE("callback exception: %s", e.what());
         }
     }
-    while (block && online(m_socket)) {
+    while (block && online(network.socket)) {
         wait(WAIT100ms);
     }
     return 0;
@@ -278,15 +284,15 @@ ssize_t KaiSocket::Recv(uint8_t* buff, size_t size)
         LOGI("Network socket not avaliable!");
     }
     ssize_t res = ::recv(network.socket, reinterpret_cast<char*>(&header), len, 0);
-    if (0 > res) { // fixme only when disconnect to continue
+    if (0 > res || (res == 0 && errno != EINTR)) {
         notify(network.socket);
-        LOGI("Recv fail(%zd): %s", res, strerror(errno));
+        LOGI("Recv fail(%ld): %s", res, strerror(errno));
         return -3;
     }
     if (strncmp(reinterpret_cast<char*>(&header), "Kai", 3) == 0)
         return 0; // heartbeat ignore
     if (res != len) {
-        LOGI("Got len %zu, size = %zu", res, len);
+        LOGI("Got len %lu, size = %lu", res, len);
     }
     static uint64_t subSsid;
     // get ssid set to 'm_network', also repeat to server as a mark for search clients
@@ -313,7 +319,7 @@ ssize_t KaiSocket::Recv(uint8_t* buff, size_t size)
     ssize_t err = -1;
     if (left > 0) {
         err = ::recv(network.socket, reinterpret_cast<char*>(message + len), left, 0);
-        if (err <= 0) {
+        if (err <= 0 && errno != EINTR) {
             notify(network.socket);
             delete[] message;
             return -4;
@@ -335,18 +341,25 @@ ssize_t KaiSocket::Recv(uint8_t* buff, size_t size)
     }
     if (msg.head.etag != 0) {
         using namespace std;
+        bool deal = false;
         msg.head.ssid = setSsid(network.IP, network.PORT);
         memcpy(message, &msg, sizeof(Message));
-        if (strcmp(network.header.topic, network.header.topic) == 0
-            && network.header.ssid == subSsid
-            && network.header.etag == CONSUMER) { // only consume should be sent
-            if ((stat = KaiSocket::writes(network.socket, message, total)) < 0) {
-                LOGE("Writes to [%d], %zu failed.", network.socket, total);
+        for (auto& client : m_networks[network.socket].clients) {
+            if (strcmp(client->header.topic, msg.head.topic) == 0
+                && client->header.ssid == subSsid
+                && client->header.etag == CONSUMER) { // only consume should be sent
+                if ((stat = KaiSocket::writes(client->socket, message, total)) < 0) {
+                    LOGE("Writes to [%d], %zu failed.", client->socket, total);
+                }
+                deal = true;
             }
         }
-        if (stat >= 0)
-            strcpy(msg.data.stat, "SUCCESS");
-        else if (stat == -1)
+        if (stat >= 0) {
+            if (deal)
+                strcpy(msg.data.stat, "SUCCESS");
+            else
+                strcpy(msg.data.stat, "NOTDEAL");
+        } else if (stat == -1)
             strcpy(msg.data.stat, "NULLPTR");
         else
             strcpy(msg.data.stat, "FAILURE");
@@ -363,6 +376,9 @@ ssize_t KaiSocket::Recv(uint8_t* buff, size_t size)
 
 bool KaiSocket::online(SOCKET socket)
 {
+    if (socket == 0 || m_networks.empty()) {
+        return false;
+    }
     std::mutex mtxLck = {};
     std::lock_guard<std::mutex> lock(mtxLck);
     if (m_networks.find(socket) != m_networks.end()) {
@@ -391,6 +407,8 @@ ssize_t KaiSocket::writes(SOCKET socket, const uint8_t* data, size_t len)
 {
     if (data == nullptr || len == 0)
         return 0;
+    if (errno == EPIPE)
+        return -2;
     std::mutex mtxLck = {};
     std::lock_guard<std::mutex> lock(mtxLck);
     int left = (int)len;
@@ -574,20 +592,20 @@ int KaiSocket::consume(Message& msg)
 {
     std::mutex mtxLck = {};
     std::lock_guard<std::mutex> lock(mtxLck);
-    std::deque<const Message*> msgque = m_networks[m_socket].message;
-    if (msgque.empty()) {
-        LOGE("msg que is has no elem.");
+    std::deque<const Message*> msg_que = m_networks[m_socket].message;
+    if (msg_que.empty()) {
+        LOGE("msg que has no elem.");
         return -1;
     }
-    size_t size = msgque.size();
-    const Message* message = msgque.front();
+    size_t size = msg_que.size();
+    const Message* message = msg_que.front();
     memcpy(&msg.head, &message->head, HEAD_SIZE);
     memcpy(&msg.data, &message->data, sizeof(Message::Payload));
     if (size > 0) {
-        msgque.pop_front();
+        msg_que.pop_front();
     }
     // if 1: success, 0: nothing
-    return static_cast<int>(size - msgque.size());
+    return static_cast<int>(size - msg_que.size());
 }
 
 void KaiSocket::finish()
@@ -604,6 +622,11 @@ void KaiSocket::finish()
         delete msg;
     }
     m_networks.clear();
+}
+
+void KaiSocket::exit()
+{
+    m_exit = true;
 }
 
 void KaiSocket::setTopic(const std::string& topic, Header& header)
@@ -629,21 +652,39 @@ ssize_t KaiSocket::Subscriber(const std::string& message, RECVCALLBACK callback)
 {
     std::mutex mtxLck = {};
     std::lock_guard<std::mutex> lock(mtxLck);
+    signal(SIGQUIT, signalCatch);
     signal(SIGPIPE, signalCatch);
+    signal(SIGSEGV, signalCatch);
     Network& network = m_networks[m_socket];
     network.method = SUBSCRIBE;
     if (this->Connect() < 0) {
         return -2;
     }
+#ifdef WIN32
+#define RECV_FLAG 0
+#else
+#ifdef _NONE_BLOCK
+    int ioc = fcntl(network.socket, F_GETFL, 0);
+    fcntl(network.socket, F_SETFL, ioc | O_NONBLOCK);
+#define RECV_FLAG MSG_DONTROUTE
+#else
+#define RECV_FLAG 0
+#endif
+#endif
     const size_t Size = HEAD_SIZE + sizeof(Message::Payload::stat);
     volatile bool flag = false;
     Message msg = {};
     do {
+        if (m_exit) {
+            LOGD("Subscribe will exit");
+            break;
+        }
+        wait(100);
         memset(&msg, 0, Size);
-        ssize_t len = ::recv(m_socket, reinterpret_cast<char*>(&msg), Size, 0);
-        if (len < 0) {
-            LOGE("Receive head fail[%d], %s", m_socket, strerror(errno));
-            notify(m_socket);
+        ssize_t len = ::recv(network.socket, reinterpret_cast<char*>(&msg), Size, RECV_FLAG);
+        if (len < 0 || (len == 0 && errno != EINTR)) {
+            LOGE("Receive head fail[%ld], %s", len, strerror(errno));
+            notify(network.socket);
             return -3;
         }
         char* kai = (char*)(&msg);
@@ -664,7 +705,7 @@ ssize_t KaiSocket::Subscriber(const std::string& message, RECVCALLBACK callback)
                 LOGE("Writes %s", strerror(errno));
                 return -4;
             }
-            LOGI("MQ writes %zd [%lld] %s: '%s'.", len, msg.head.ssid,
+            LOGI("MQ writes %ld [%lld] %s: '%s'.", len, msg.head.ssid,
                 KaiSocket::G_KaiMethod[msg.head.etag], msg.head.topic);
             continue;
         }
@@ -675,17 +716,17 @@ ssize_t KaiSocket::Subscriber(const std::string& message, RECVCALLBACK callback)
                 LOGE("Extra body malloc failed!");
                 return -1;
             }
-            len = ::recv(m_socket, reinterpret_cast<char*>(body), remain, 0);
-            if (len < 0) {
+            len = ::recv(network.socket, reinterpret_cast<char*>(body), remain, RECV_FLAG);
+            if (len < 0 || (len == 0 && errno != EINTR)) {
                 LOGE("Receive body fail, %s", strerror(errno));
-                notify(m_socket);
+                notify(network.socket);
                 delete[] body;
                 return -5;
             } else {
                 msg.data.stat[0] = 'O';
                 msg.data.stat[1] = 'K';
                 memcpy(msg.data.body, body, len);
-                msg.data.body[len] = '\0';
+                msg.data.stat[2] = msg.data.body[len] = '\0';
                 if (callback != nullptr) {
                     callback(msg);
                 }
@@ -694,6 +735,7 @@ ssize_t KaiSocket::Subscriber(const std::string& message, RECVCALLBACK callback)
             delete[] body;
         }
     } while (flag);
+    finish();
     return 0;
 }
 
@@ -710,6 +752,7 @@ ssize_t KaiSocket::Publisher(const std::string& topic, const std::string& payloa
         g_maxTimes = 0;
     }
     m_networks[m_socket].method = PUBLISH;
+    m_networks[m_socket].clients.emplace_back(&m_networks[m_socket]);
     const int maxLen = 256;
     Message msg = {};
     memset(&msg, 0, sizeof(Message));

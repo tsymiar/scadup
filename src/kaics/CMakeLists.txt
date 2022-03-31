@@ -10,7 +10,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -Wall")
 set(CMAKE_CXX_FLAGS "-std=c++0x ${CMAKE_CXX_FLAGS} -g -ftest-coverage -fprofile-arcs")
 
 if (NOT WIN32)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated -Wno-format")
 endif()
 
 if("${ANDROID}" EQUAL "1")
@@ -21,6 +21,7 @@ else()
     add_definitions(-DFULLY_COMPILE)
     include_directories(..)
 endif()
+#add_definitions(-D_NONE_BLOCK)
 
 file(GLOB SRC_FILE_LIST "*[^test]*.*[^.txt]*")
 
