@@ -58,3 +58,4 @@ Debug
 jniLibs
 *.exe
 *.so
+CMakeSettings.json

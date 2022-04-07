@@ -39,9 +39,11 @@ namespace {
     const size_t HEAD_SIZE = sizeof(KaiSocket::Header);
 }
 
-void signalCatch(int number)
+void signalCatch(int value)
 {
-    LOGI("Caught signal: %d", number);
+    if (value == SIGSEGV)
+        return;
+    LOGI("Caught signal: %d", value);
 }
 
 int KaiSocket::Initialize(const char* ip, unsigned short port)
@@ -418,7 +420,7 @@ ssize_t KaiSocket::writes(SOCKET socket, const uint8_t* data, size_t len)
         return -1;
     }
     memset(buff, 0, left);
-    memcpy(buff, data, len);
+    memcpy(buff, data, left);
     while (left > 0) {
         ssize_t wrote = 0;
         if ((wrote = write(socket, reinterpret_cast<char*>(buff + wrote), left)) <= 0) {
@@ -599,7 +601,10 @@ int KaiSocket::consume(Message& msg)
     }
     size_t size = msg_que.size();
     const Message* message = msg_que.front();
-    memcpy(&msg.head, &message->head, HEAD_SIZE);
+    if (message == nullptr) {
+        return size;
+    }
+    msg.head = message->head;
     memcpy(&msg.data, &message->data, sizeof(Message::Payload));
     if (size > 0) {
         msg_que.pop_front();
@@ -650,11 +655,12 @@ int KaiSocket::Broker()
 
 ssize_t KaiSocket::Subscriber(const std::string& message, RECVCALLBACK callback)
 {
-    std::mutex mtxLck = {};
-    std::lock_guard<std::mutex> lock(mtxLck);
     signal(SIGQUIT, signalCatch);
     signal(SIGPIPE, signalCatch);
-    signal(SIGSEGV, signalCatch);
+    signal(SIGABRT, signalCatch);
+    signal(SEGV_MAPERR, signalCatch);
+    std::mutex mtxLck = {};
+    std::lock_guard<std::mutex> lock(mtxLck);
     Network& network = m_networks[m_socket];
     network.method = SUBSCRIBE;
     if (this->Connect() < 0) {
@@ -711,12 +717,12 @@ ssize_t KaiSocket::Subscriber(const std::string& message, RECVCALLBACK callback)
         }
         if (msg.head.size > Size) {
             size_t remain = msg.head.size - Size;
-            auto* body = new(std::nothrow) uint8_t[remain];
+            auto* body = new(std::nothrow) char[remain];
             if (body == nullptr) {
-                LOGE("Extra body malloc failed!");
+                LOGE("Extra body(%u, %lu) malloc failed!", msg.head.size, Size);
                 return -1;
             }
-            len = ::recv(network.socket, reinterpret_cast<char*>(body), remain, RECV_FLAG);
+            len = ::recv(network.socket, body, remain, RECV_FLAG);
             if (len < 0 || (len == 0 && errno != EINTR)) {
                 LOGE("Receive body fail, %s", strerror(errno));
                 notify(network.socket);
@@ -725,12 +731,20 @@ ssize_t KaiSocket::Subscriber(const std::string& message, RECVCALLBACK callback)
             } else {
                 msg.data.stat[0] = 'O';
                 msg.data.stat[1] = 'K';
-                memcpy(msg.data.body, body, len);
-                msg.data.stat[2] = msg.data.body[len] = '\0';
-                if (callback != nullptr) {
-                    callback(msg);
+                msg.data.stat[2] = '\0';
+                auto* pMsg = (Message*)new char[sizeof(Message) + len];
+                if (pMsg != nullptr) {
+                    memcpy(pMsg, &msg, sizeof(Message));
+                    if (len > 0) {
+                        memcpy(pMsg->data.body, body, len);
+                        pMsg->data.body[len] = '\0';
+                    }
+                    if (callback != nullptr) {
+                        callback(*pMsg);
+                    }
+                    LOGI("Message payload = [%s]-[%s]", pMsg->data.stat, pMsg->data.body);
+                    delete pMsg;
                 }
-                LOGI("Message payload = [%s]-[%s]", msg.data.stat, msg.data.body);
             }
             delete[] body;
         }
@@ -741,11 +755,14 @@ ssize_t KaiSocket::Subscriber(const std::string& message, RECVCALLBACK callback)
 
 ssize_t KaiSocket::Publisher(const std::string& topic, const std::string& payload, ...)
 {
+    signal(SIGSEGV, signalCatch);
+    signal(SIGABRT, signalCatch);
     std::mutex mtxLck = {};
     std::lock_guard<std::mutex> lock(mtxLck);
     size_t size = payload.size();
     if (topic.empty() || size == 0) {
         LOGD("payload/topic was empty!");
+        return 0;
     } else {
         notify(m_socket);
         m_callbacks.clear();
@@ -765,7 +782,7 @@ ssize_t KaiSocket::Publisher(const std::string& topic, const std::string& payloa
         LOGE("Connect failed!");
         return -2;
     }
-    auto* message = new(std::nothrow) uint8_t[msgLen];
+    auto* message = new(std::nothrow) uint8_t[msgLen + 1];
     if (message == nullptr) {
         LOGE("Message malloc failed!");
         return -1;

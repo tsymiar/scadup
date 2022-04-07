@@ -48,11 +48,7 @@ public:
         Header head{};
         struct Payload {
             char stat[8];
-#ifdef _WIN32
-            char body[256];
-#else
             char body[0];
-#endif
         } __attribute__((packed)) data {};
         void* operator new(size_t, const Message& msg) {
             static void* mss = (void*)(&msg);

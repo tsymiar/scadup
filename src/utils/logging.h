@@ -36,7 +36,7 @@ inline const char* basename(const char* file) {
 #define LOCATE_ARGS(_module) _module,basename((char*)__FILE__),__LINE__,__FUNCTION__
 #define LOCATE_FORMAT "[%s](%s:%d)[%s]: "
 #endif //NOLOCATE
-inline struct tm* times() { time_t now = time(NULL); static struct tm* local = localtime(&now); return local; }
+inline struct tm* times() { time_t now = time(NULL); static struct tm* local = NULL; local = localtime(&now); return local; }
 inline void logger(const char* fm, ...) { va_list args; va_start(args, fm); (void)vprintf(fm, args); va_end(args); (void)printf("\n"); }
 #define LOGI(fmt, ...) logger(TIME_FORMAT "[INFO]" LOCATE_FORMAT fmt, TIME_ARGS(times()), LOCATE_ARGS(LOG_TAG),##__VA_ARGS__)
 #define LOGD(fmt, ...) logger(TIME_FORMAT "[DEBUG]" LOCATE_FORMAT fmt, TIME_ARGS(times()), LOCATE_ARGS(LOG_TAG),##__VA_ARGS__)
