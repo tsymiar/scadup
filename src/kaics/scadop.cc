@@ -514,7 +514,7 @@ void KaiSocket::NotifyTask()
             }
             for (auto at = it->second.clients.begin(); at != it->second.clients.end(); ++at) {
                 if (*at != nullptr) {
-                    if (!(*at)->active && (*at)->socket > 0) {
+                    if ((!(*at)->active && (*at)->socket > 0) || errno == EBADF) {
                         close((*at)->socket);
                         LOGE("(%s:%d) client socket [%d] lost.", (*at)->IP.c_str(), (*at)->PORT, (*at)->socket);
                         if (it->second.clients.size() == 1) {
@@ -618,15 +618,20 @@ void KaiSocket::finish()
     std::mutex mtxLck = {};
     std::lock_guard<std::mutex> lock(mtxLck);
     Network& network = m_networks[m_socket];
+    for (auto& client: network.clients) {
+        if (client->active) {
+            notify(client->socket);
+        }
+    }
     while (network.active) {
         notify(network.socket);
         usleep(WAIT100ms);
     }
-    m_callbacks.clear();
     for (auto msg : network.message) {
         delete msg;
     }
     m_networks.clear();
+    m_callbacks.clear();
 }
 
 void KaiSocket::exit()
@@ -655,9 +660,10 @@ int KaiSocket::Broker()
 
 ssize_t KaiSocket::Subscriber(const std::string& message, RECVCALLBACK callback)
 {
-    signal(SIGQUIT, signalCatch);
-    signal(SIGPIPE, signalCatch);
     signal(SIGABRT, signalCatch);
+    signal(SIGPIPE, signalCatch);
+    signal(SIGQUIT, signalCatch);
+    signal(SIGSEGV, signalCatch);
     signal(SEGV_MAPERR, signalCatch);
     std::mutex mtxLck = {};
     std::lock_guard<std::mutex> lock(mtxLck);
@@ -688,7 +694,7 @@ ssize_t KaiSocket::Subscriber(const std::string& message, RECVCALLBACK callback)
         wait(100);
         memset(&msg, 0, Size);
         ssize_t len = ::recv(network.socket, reinterpret_cast<char*>(&msg), Size, RECV_FLAG);
-        if (len < 0 || (len == 0 && errno != EINTR)) {
+        if (len == 0 || (len < 0 && errno != EAGAIN)) {
             LOGE("Receive head fail[%ld], %s", len, strerror(errno));
             notify(network.socket);
             return -3;

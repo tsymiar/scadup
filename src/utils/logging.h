@@ -27,7 +27,7 @@ inline const char* basename(const char* file) {
 #define TIME_FORMAT
 #else
 #define TIME_ARGS(_ptm) ((_ptm)->tm_year + 1900), ((_ptm)->tm_mon + 1), (_ptm)->tm_mday, (_ptm)->tm_hour, (_ptm)->tm_min, (_ptm)->tm_sec
-#define TIME_FORMAT "[%d-%d-%d/%d:%d:%d]"
+#define TIME_FORMAT "[%d-%d-%d/%02d:%02d:%02d]"
 #endif //NOTIME
 #ifdef NOLOCATE
 #define LOCATE_ARGS
