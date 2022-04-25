@@ -1,4 +1,4 @@
-#include "scadop.h"
+#include "Scadup.h"
 
 #ifndef _WIN32
 #include <unistd.h>
@@ -9,7 +9,7 @@
 using namespace std;
 
 int main(int argc, char* argv[]) {
-    KaiMethods method = SERVER;
+    G_MethodEnum method = SERVER;
     if (argc > 1) {
         string argv1 = string(argv[1]);
         method = (argv1 == "-C" ? CLIENT :
@@ -21,15 +21,15 @@ int main(int argc, char* argv[]) {
     pid_t child = fork();
     if (child == 0) {
 #endif
-        KaiSocket kai;
+        Scadup scadup;
         unsigned short PORT = 9999;
-        const char* IP = "127.0.0.1";
+        const char* IP = "81.68.170.12";
         if (method >= CLIENT) {
-            kai.Initialize(IP, PORT);
+            scadup.Initialize(IP, PORT);
         } else {
-            kai.Initialize(PORT);
+            scadup.Initialize(PORT);
         }
-        cout << argv[0] << ": run as [" << method << "](" << KaiSocket::G_KaiMethod[method] << ")" << endl;
+        cout << argv[0] << ": run as [" << method << "](" << Scadup::G_MethodValue[method] << ")" << endl;
         string topic = "topic";
         if (argc > 2) {
             topic = string(argv[2]);
@@ -37,22 +37,22 @@ int main(int argc, char* argv[]) {
         string payload = "a123+/";
         switch (method) {
         case CLIENT:
-            kai.Connect();
+            scadup.Connect();
             break;
         case SERVER:
-            kai.Start();
+            scadup.Start();
             break;
         case BROKER:
-            kai.Broker();
+            scadup.Broker();
             break;
         case SUBSCRIBE:
-            kai.Subscriber(topic);
+            scadup.Subscriber(topic);
             break;
         case PUBLISH:
             if (argc > 3) {
                 payload = string(argv[3]);
             }
-            kai.Publisher(topic, payload);
+            scadup.Publisher(topic, payload);
         default:
             break;
         }
@@ -60,7 +60,7 @@ int main(int argc, char* argv[]) {
     } else if (child > 0) {
         cout << "child process " << child << " started" << endl;
     } else {
-        cout << "KaiSocket fork process failed!" << endl;
+        cout << "Scadup fork process failed!" << endl;
     }
 #endif
 }

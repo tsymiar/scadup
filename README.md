@@ -1,2 +1,2 @@
-# scadop
-Share command and data on proxy
+# Scadup
+Share command and data under proxy

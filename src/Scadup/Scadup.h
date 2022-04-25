@@ -8,7 +8,7 @@
 #include <map>
 #include <functional>
 
-enum KaiMethods {
+enum G_MethodEnum {
     NONE = 0,
     PRODUCER,
     CONSUMER,
@@ -28,16 +28,18 @@ enum KaiMethods {
 typedef int ssize_t;
 #pragma comment(lib, "WS2_32.lib")
 #include <WinSock2.h>
+#define CONTENT_SIZE 256
 #else
 using SOCKET = int;
+#define CONTENT_SIZE 0
 #endif
 
-class KaiSocket {
+class Scadup {
 public:
 #pragma pack(1)
     struct Header {
         char rsv;
-        int etag;
+        int tag;
         volatile unsigned long long ssid; //ssid = port | socket | ip
         char topic[32];
         unsigned int size;
@@ -45,11 +47,11 @@ public:
 #pragma pack()
 #pragma pack(1)
     struct Message {
-        Header head{};
+        Header header{};
         struct Payload {
-            char stat[8];
-            char body[0];
-        } __attribute__((packed)) data {};
+            char status[8];
+            char content[CONTENT_SIZE];
+        } __attribute__((packed)) payload {};
         void* operator new(size_t, const Message& msg) {
             static void* mss = (void*)(&msg);
             return mss;
@@ -61,22 +63,22 @@ public:
         std::string IP{};
         unsigned short PORT = 0;
         volatile bool active = false;
-        KaiMethods method = SERVER;
+        G_MethodEnum method = SERVER;
         Header header{};
         std::deque<const Message*> message{};
         std::vector<Network*> clients{};
     };
-    typedef int(*KAISOCKHOOK)(KaiSocket*);
+    typedef int(*TASKCALLBACK)(Scadup*);
     typedef void(*RECVCALLBACK)(const Message&);
-    static char G_KaiMethod[][0xa];
-    KaiSocket() = default;
-    virtual ~KaiSocket() = default;
+    static char G_MethodValue[][0xa];
+    Scadup() = default;
+    virtual ~Scadup() = default;
 public:
     int Initialize(unsigned short port);
     int Initialize(const char* ip, unsigned short port);
-    static KaiSocket& GetInstance();
+    static Scadup& GetInstance();
     // workflow
-    int Start(KaiMethods = SERVER);
+    int Start(G_MethodEnum = SERVER);
     int Connect();
     ssize_t Recv(uint8_t* buff, size_t size);
     //
@@ -84,14 +86,14 @@ public:
     ssize_t Publisher(const std::string& topic, const std::string& payload, ...);
     ssize_t Subscriber(const std::string& message, RECVCALLBACK callback = nullptr);
     // callback
-    void registerCallback(KAISOCKHOOK func);
-    void appendCallback(KAISOCKHOOK func);
+    void registerCallback(TASKCALLBACK func);
+    void appendCallback(TASKCALLBACK func);
     // private members should be deleted in release version head-file
     static void wait(unsigned int tms);
     void exit();
 private:
     std::map<SOCKET, Network> m_networks{};
-    std::vector<int(*)(KaiSocket*)> m_callbacks{};
+    std::vector<int(*)(Scadup*)> m_callbacks{};
     std::mutex m_lock = {};
     SOCKET m_socket = 0;
     bool m_exit = false;
@@ -105,7 +107,7 @@ private:
     void finish();
     void notify(SOCKET);
     void NotifyTask();
-    void CallbackTask(KAISOCKHOOK, SOCKET);
+    void CallbackTask(TASKCALLBACK, SOCKET);
     int consume(Message& msg);
     int produce(const Message& msg);
 };

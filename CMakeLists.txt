@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.0)
 
-project(scadop CXX)
+project(Scadup_main CXX)
 
 if("${ANDROID}" EQUAL "1")
-    add_subdirectory(src/kaics)
+    add_subdirectory(src/Scadup)
 else()
     add_subdirectory(test)
 endif()

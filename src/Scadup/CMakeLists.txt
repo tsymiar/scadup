@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.0)
 
-project(kaics CXX)
+project(Scadup CXX)
 
 set(CMAKE_CXX_STANDARD 11)
-set(TARGET kaics)
+set(TARGET scadup)
 set(OPTION "-fPIC -pthread")
 set(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O0 -Wall -g -ggdb")
 set(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -Wall")
@@ -15,7 +15,7 @@ endif()
 
 if("${ANDROID}" EQUAL "1")
     set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}../../../jniLibs/${ANDROID_ABI})
-    include_directories(kaics)
+    include_directories(Scadup)
 else()
     set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/../../lib)
     add_definitions(-DFULLY_COMPILE)
