@@ -1,5 +1,5 @@
-#ifndef KAICS_LOGGING_H
-#define KAICS_LOGGING_H
+#ifndef SCADUP_LOGGING_H
+#define SCADUP_LOGGING_H
 
 #include <stdio.h>
 #include <time.h>
@@ -42,4 +42,4 @@ inline void logger(const char* fm, ...) { va_list args; va_start(args, fm); (voi
 #define LOGD(fmt, ...) logger(TIME_FORMAT "[DEBUG]" LOCATE_FORMAT fmt, TIME_ARGS(times()), LOCATE_ARGS(LOG_TAG),##__VA_ARGS__)
 #define LOGE(fmt, ...) logger(TIME_FORMAT "[ERROR]" LOCATE_FORMAT fmt, TIME_ARGS(times()), LOCATE_ARGS(LOG_TAG),##__VA_ARGS__)
 #endif //ANDROID
-#endif //KAICS_LOGGING_H
+#endif //SCADUP_LOGGING_H

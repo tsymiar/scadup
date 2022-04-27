@@ -9,13 +9,21 @@
 using namespace std;
 
 int main(int argc, char* argv[]) {
-    G_MethodEnum method = SERVER;
+    G_MethodEnum method = NONE;
     if (argc > 1) {
         string argv1 = string(argv[1]);
-        method = (argv1 == "-C" ? CLIENT :
-            (argv1 == "-S" ? SUBSCRIBE :
-                (argv1 == "-P" ? PUBLISH :
-                    (argv1 == "-B" ? BROKER : SERVER))));
+        method = (argv1 == "-S" ? SERVER :
+            (argv1 == "-C" ? CLIENT :
+                (argv1 == "-sub" ? SUBSCRIBE :
+                    (argv1 == "-pub" ? PUBLISH :
+                        (argv1 == "-B" ? BROKER : SERVER)))));
+    } else {
+        cout << "Usage:" << endl
+            << "-S - run as server" << endl
+            << "-C - run as client" << endl
+            << "-B - run as broker" << endl
+            << "-pub [topic] [payload] - run as publisher messaging to broker" << endl
+            << "-sub [topic] - run as subscriber" << endl;
     }
 #ifdef _USE_FORK_PROCESS_
     pid_t child = fork();
