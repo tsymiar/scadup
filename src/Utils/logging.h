@@ -15,6 +15,7 @@ inline const char* basename(const char* file) {
 #else
 #include <libgen.h>
 //#pragma GCC diagnostic ignored "-Wwritable-strings"
+#pragma GCC diagnostic ignored "-Wformat"
 #endif
 #ifdef __ANDROID__
 #include <android/log.h>
