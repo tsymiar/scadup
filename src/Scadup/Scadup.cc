@@ -442,7 +442,7 @@ ssize_t Scadup::writes(SOCKET socket, const uint8_t* data, size_t len)
 
 ssize_t Scadup::broadcast(const uint8_t* data, size_t len)
 {
-    if (data == nullptr || len <= 0) {
+    if (data == nullptr || len == 0) {
         LOGE("Transfer data is null!");
         return -1;
     }
