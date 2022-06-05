@@ -24,7 +24,9 @@ int main(int argc, char* argv[])
              << "-C -- run as client" << endl
              << "-B -- run as broker" << endl
              << "-pub [topic] [payload] -- run as publisher messaging to broker" << endl
+             << "-pub [topic] -f [filename] -- run as publisher send file content" << endl
              << "-sub [topic] -- run as subscriber" << endl;
+        return 0;
     }
 #ifdef _USE_FORK_PROCESS_
     pid_t child = fork();
@@ -32,18 +34,25 @@ int main(int argc, char* argv[])
 #endif
     Scadup scadup;
     unsigned short PORT = 9999;
-    const char* IP = "192.168.0.6";
+    string IP = "";
+    string content = Scadup::getStrFile2string("scadup.cfg");
+    if (!content.empty()) {
+        IP = Scadup::getVariable(content, "IP");
+    }
+    if (IP.empty()) {
+        IP = "192.168.0.6";
+    }
     if (method >= CLIENT) {
-        scadup.Initialize(IP, PORT);
+        scadup.Initialize(IP.c_str(), PORT);
     } else {
         scadup.Initialize(PORT);
     }
-    cout << argv[0] << ": run as [" << method << "](" << Scadup::G_MethodValue[method] << ")" << endl;
+    cout << argv[0] << ": run as [" << method << "](" << Scadup::G_MethodValue[method] << ") to " << IP << endl;
     string topic = "topic";
     if (argc > 2) {
         topic = string(argv[2]);
     }
-    string payload = "a123+/";
+    string param = "a123+/";
     switch (method) {
         case CLIENT:
             scadup.Connect();
@@ -58,10 +67,15 @@ int main(int argc, char* argv[])
             scadup.Subscriber(topic);
             break;
         case PUBLISH:
-            if (argc > 3) {
-                payload = string(argv[3]);
+            if (argc == 4) {
+                param = string(argv[3]);
+                scadup.Publisher(topic, param);
             }
-            scadup.Publisher(topic, payload);
+            if (argc > 4 && string(argv[3]) == "-f") {
+                param = argv[4];
+                scadup.Publisher(topic, Scadup::GetBinFile2String(param));
+            }
+            break;
         default:
             break;
     }

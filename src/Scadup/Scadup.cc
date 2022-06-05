@@ -15,6 +15,8 @@
 #include <thread>
 #include <cmath>
 #include <csignal>
+#include <fstream>
+
 #define LOG_TAG "Scadup"
 #include "../Utils/logging.h"
 
@@ -44,6 +46,54 @@ void signalCatch(int value)
     if (value == SIGSEGV)
         return;
     LOGI("Caught signal: %d", value);
+}
+
+std::string Scadup::GetBinFile2String(const std::string& filename)
+{
+    std::string s{};
+    FILE* fp = fopen(filename.c_str(), "rb");
+    if (fp) {
+        fseek(fp, 0, SEEK_END);
+        long len = ftell(fp);
+        fseek(fp, 0, SEEK_SET);
+        s.resize(len);
+        fread((void*)s.data(), 1, len, fp);
+        fclose(fp);
+    } else {
+        std::cerr << __FUNCTION__ << ": file[" << filename << "] open fail: " << strerror(errno) << std::endl;
+    }
+    return s;
+}
+
+std::string Scadup::getStrFile2string(const std::string& filename)
+{
+    std::string content{};
+    std::ifstream file(filename);
+    if (file.is_open()) {
+        content.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+    }
+    file.close();
+    return content;
+}
+
+std::string Scadup::getVariable(const std::string& url, const std::string& key)
+{
+    std::string val = {};
+    size_t pos = url.find(key);
+    if (pos != std::string::npos) {
+        val = url.substr(pos, url.size());
+        pos = val.find('=');
+        size_t org = val.find('&');
+        if (org == std::string::npos) {
+            val = val.substr(pos + 1, val.size() - pos - 1);
+        } else {
+            val = val.substr(pos + 1, org - pos - 1);
+        }
+    }
+    if ((pos = val.find('\n')) != std::string::npos) {
+        val = val.substr(0, pos);
+    }
+    return val;
 }
 
 int Scadup::Initialize(const char* ip, unsigned short port)
@@ -776,7 +826,7 @@ ssize_t Scadup::Publisher(const std::string& topic, const std::string& payload, 
     }
     m_networks[m_socket].method = PUBLISH;
     m_networks[m_socket].clients.emplace_back(&m_networks[m_socket]);
-    const int maxLen = 256;
+    const int maxLen = payload.max_size();
     Message msg = {};
     memset(&msg, 0, sizeof(Message));
     size = (size > maxLen ? maxLen : size);

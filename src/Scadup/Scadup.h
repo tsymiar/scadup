@@ -89,8 +89,11 @@ public:
     void registerCallback(TASKCALLBACK func);
     void appendCallback(TASKCALLBACK func);
     // private members should be deleted in release version head-file
-    static void wait(unsigned int tms);
     void exit();
+    static void wait(unsigned int tms);
+    static std::string GetBinFile2String(const std::string& filename);
+    static std::string getStrFile2string(const std::string& filename);
+    static std::string getVariable(const std::string& url, const std::string& key);
 private:
     std::map<SOCKET, Network> m_networks{};
     std::vector<int(*)(Scadup*)> m_callbacks{};
