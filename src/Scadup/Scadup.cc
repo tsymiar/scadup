@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <iostream>
 #include <cstdlib>
+#include <chrono>
 #include <thread>
 #include <cmath>
 #include <csignal>
@@ -26,7 +27,6 @@ typedef int socklen_t;
 #ifndef INET_ADDRSTRLEN
 #define INET_ADDRSTRLEN 16
 #endif
-#define usleep(u) Sleep((u)/1000)
 #define write(x,y,z) ::send(x,(char*)(y),z,0)
 #define signal(_1,_2) {}
 #else
@@ -404,7 +404,7 @@ bool Scadup::online(SOCKET socket)
 
 void Scadup::wait(unsigned int tms)
 {
-    usleep(1000 * tms);
+    std::this_thread::sleep_for(std::chrono::microseconds(tms));
 }
 
 ssize_t Scadup::writes(SOCKET socket, const uint8_t* data, size_t len)
@@ -627,7 +627,7 @@ void Scadup::finish()
     }
     while (network.active) {
         notify(network.socket);
-        usleep(WAIT100ms);
+        wait(WAIT100ms);
     }
     for (auto msg : network.message) {
         delete msg;

@@ -6,10 +6,11 @@
 #include <stdarg.h>
 #include <string.h>
 #ifdef _WIN32
-const char* basename(const char* file)
+const char* basename(const char* name)
 {
-    size_t len = strlen(file);
-    if (len > 256) len = 256;
+    char file[256];
+    size_t len = 256;
+    snprintf(file, len, "%s", name);
     static char* base = new char[len];
     for (size_t i = 0; i < len; i++) { if (file[i] == '/' || file[i] == '\\') { memcpy(base, file + i + 1, len - i); memset(base + len - i, 0, 1); } }
     return base;

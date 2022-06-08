@@ -3,9 +3,11 @@
 //
 
 #include "FileUtils.h"
-#include <iostream>
 #include <mutex>
 #include <fstream>
+
+#define LOG_TAG "FileUtils"
+#include "logging.h"
 
 static std::once_flag g_create_flag;
 static std::shared_ptr<FileUtils> g_instance;
@@ -20,8 +22,7 @@ std::shared_ptr<FileUtils> FileUtils::instance()
     std::call_once(
             g_create_flag,
             [&]() {
-                struct make_shared_enabler : FileUtils {
-                };
+                struct make_shared_enabler : FileUtils {};
                 std::make_shared<make_shared_enabler>();
             }
     );
@@ -40,7 +41,7 @@ std::string FileUtils::GetBinFile2String(const std::string& filename)
         fread((void*)s.data(), 1, len, fp);
         fclose(fp);
     } else {
-        std::cerr << __FUNCTION__ << ": file[" << filename << "] open fail: " << strerror(errno) << std::endl;
+        LOGE("file[%s] open fail: %d", filename.c_str(), strerror(errno));
     }
     return s;
 }
