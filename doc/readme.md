@@ -22,4 +22,4 @@
 
 ### Usage
 
-* One example case: [Device2Device](https://github.com/tsymiar/Device2Device)
+* One project usage: [Device2Device](https://github.com/tsymiar/Device2Device/tree/main/app/src/main/cpp)

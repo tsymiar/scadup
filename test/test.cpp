@@ -1,4 +1,5 @@
 #include "Scadup.h"
+#include "FileUtils.h"
 
 #ifndef _WIN32
 #include <unistd.h>
@@ -16,16 +17,16 @@ int main(int argc, char* argv[])
         method = (argv1 == "-S" ? SERVER :
                   (argv1 == "-C" ? CLIENT :
                    (argv1 == "-B" ? BROKER :
-                    (argv1 == "-pub" ? PUBLISH :
-                     (argv1 == "-sub" ? SUBSCRIBE : SERVER)))));
+                    (argv1 == "pub" ? PUBLISH :
+                     (argv1 == "sub" ? SUBSCRIBE : SERVER)))));
     } else {
         cout << "Usage:" << endl
              << "-S -- run as server" << endl
              << "-C -- run as client" << endl
              << "-B -- run as broker" << endl
-             << "-pub [topic] [payload] -- run as publisher messaging to broker" << endl
-             << "-pub [topic] -f [filename] -- run as publisher send file content" << endl
-             << "-sub [topic] -- run as subscriber" << endl;
+             << "sub [topic] -- run as subscriber" << endl
+             << "pub [topic] [payload] -- run as publisher messaging to broker" << endl
+             << "pub [topic] -f [filename] -- run as publisher send file content" << endl;
         return 0;
     }
 #ifdef _USE_FORK_PROCESS_
@@ -35,9 +36,9 @@ int main(int argc, char* argv[])
     Scadup scadup;
     unsigned short PORT = 9999;
     string IP = "";
-    string content = Scadup::getStrFile2string("scadup.cfg");
+    string content = FileUtils::instance()->getStrFile2string("scadup.cfg");
     if (!content.empty()) {
-        IP = Scadup::getVariable(content, "IP");
+        IP = FileUtils::instance()->getVariable(content, "IP");
     }
     if (IP.empty()) {
         IP = "192.168.0.6";
@@ -73,7 +74,7 @@ int main(int argc, char* argv[])
             }
             if (argc > 4 && string(argv[3]) == "-f") {
                 param = argv[4];
-                scadup.Publisher(topic, Scadup::GetBinFile2String(param));
+                scadup.Publisher(topic, FileUtils::instance()->GetBinFile2String(param));
             }
             break;
         default:

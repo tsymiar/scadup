@@ -48,54 +48,6 @@ void signalCatch(int value)
     LOGI("Caught signal: %d", value);
 }
 
-std::string Scadup::GetBinFile2String(const std::string& filename)
-{
-    std::string s{};
-    FILE* fp = fopen(filename.c_str(), "rb");
-    if (fp) {
-        fseek(fp, 0, SEEK_END);
-        long len = ftell(fp);
-        fseek(fp, 0, SEEK_SET);
-        s.resize(len);
-        fread((void*)s.data(), 1, len, fp);
-        fclose(fp);
-    } else {
-        std::cerr << __FUNCTION__ << ": file[" << filename << "] open fail: " << strerror(errno) << std::endl;
-    }
-    return s;
-}
-
-std::string Scadup::getStrFile2string(const std::string& filename)
-{
-    std::string content{};
-    std::ifstream file(filename);
-    if (file.is_open()) {
-        content.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
-    }
-    file.close();
-    return content;
-}
-
-std::string Scadup::getVariable(const std::string& url, const std::string& key)
-{
-    std::string val = {};
-    size_t pos = url.find(key);
-    if (pos != std::string::npos) {
-        val = url.substr(pos, url.size());
-        pos = val.find('=');
-        size_t org = val.find('&');
-        if (org == std::string::npos) {
-            val = val.substr(pos + 1, val.size() - pos - 1);
-        } else {
-            val = val.substr(pos + 1, org - pos - 1);
-        }
-    }
-    if ((pos = val.find('\n')) != std::string::npos) {
-        val = val.substr(0, pos);
-    }
-    return val;
-}
-
 int Scadup::Initialize(const char* ip, unsigned short port)
 {
 #ifdef _WIN32
@@ -346,12 +298,12 @@ ssize_t Scadup::Recv(uint8_t* buff, size_t size)
     if (res != len) {
         LOGI("Got len %lu, size = %lu", res, len);
     }
-    static uint64_t subSsid;
+    static uint64_t preSsid;
     // get ssid set to 'm_network', also repeat to server as a mark for search clients
     unsigned long long ssid = header.ssid;
     // select to set consume network
     if (checkSsid(network.socket, ssid)) {
-        subSsid = ssid;
+        preSsid = ssid;
         network.header.tag = header.tag;
         memcpy(network.header.topic, header.topic, sizeof(Header::topic));
     }
@@ -398,7 +350,7 @@ ssize_t Scadup::Recv(uint8_t* buff, size_t size)
         memcpy(message, &msg, sizeof(Message));
         for (auto& client : m_networks[network.socket].clients) {
             if (strcmp(client->header.topic, msg.header.topic) == 0
-                && client->header.ssid == subSsid
+                && client->header.ssid == preSsid
                 && client->header.tag == CONSUMER) { // only consume should be sent
                 if ((stat = Scadup::writes(client->socket, message, total)) < 0) {
                     LOGE("Writes to [%d], %zu failed.", client->socket, total);
