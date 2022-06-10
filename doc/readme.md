@@ -2,11 +2,13 @@
 
 * Run as server
 
-    When constructs `Scadup` instance, you can initialize by call `Initialize(PORT)`. Then call `Start()` to start a server process.
+    When instantiates the `Scadup` class, you can initialize by call `Initialize(PORT)`. Then call `Start()` to start a server process, you can also register callbacks to deal receives data by calling `registerCallback()/appendCallback` with parameter in `TASKCALLBACK` format.
 
 * Run as client
 
     Call `Initialize(IP, PORT)` to initialize, then call `Connect()` to start a client.
+
+    ![](client-server.png)
 
 * Run as broker
 
@@ -20,6 +22,9 @@
 
     Call `Initialize(IP, PORT)` to initialize, then call `Subscriber(topic)` to run as subscriber. The `topic` is a mark to match the connection of publisher, so we can get message from the `topic`.
 
+    ![](message-queue.png)
+
 ### Usage
 
-* One project usage: [Device2Device](https://github.com/tsymiar/Device2Device/tree/main/app/src/main/cpp)
+* Test case: [test](../test)
+* Example project: [Device2Device](https://github.com/tsymiar/Device2Device/tree/main/app/src/main/cpp)
