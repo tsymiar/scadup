@@ -6,7 +6,7 @@
 #include <stdarg.h>
 #include <string.h>
 #ifdef _WIN32
-const char* basename(const char* name)
+inline const char* basename(const char* name)
 {
     char file[256];
     size_t len = 256;

@@ -267,13 +267,6 @@ int ProxyHook(Scadup* Scadup)
     return len;
 }
 
-#if (defined __GNUC__ && __APPLE__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wtautological-undefined-compare"
-#pragma GCC diagnostic ignored "-Wtautological-pointer-compare"
-#pragma GCC diagnostic ignored "-Wundefined-bool-conversion"
-#endif
-
 ssize_t Scadup::Recv(uint8_t* buff, size_t size)
 {
     if (buff == nullptr || size == 0)
@@ -285,7 +278,8 @@ ssize_t Scadup::Recv(uint8_t* buff, size_t size)
     memset(&header, 0, len);
     Network& network = m_networks[m_socket];
     if (!network.active || network.socket == 0) {
-        LOGI("Network socket not avaliable!");
+        LOGI("Network socket invalid!");
+        return -2;
     }
     ssize_t res = ::recv(network.socket, reinterpret_cast<char*>(&header), len, 0);
     if (0 > res || (res == 0 && errno != EINTR)) {
@@ -368,7 +362,7 @@ ssize_t Scadup::Recv(uint8_t* buff, size_t size)
         else
             strcpy(msg.payload.status, "FAILURE");
         memcpy(buff + HEAD_SIZE, msg.payload.status, sizeof(Message::payload.status));
-    } else { // set disactive
+    } else { // set inactive
         notify(network.socket);
         LOGE("Unsupported method = %d", msg.header.tag);
         delete[] message;
@@ -397,10 +391,6 @@ bool Scadup::online(SOCKET socket)
     }
     return false;
 }
-
-#if (defined __GNUC__ && __APPLE__)
-#pragma GCC diagnostic pop
-#endif
 
 void Scadup::wait(unsigned int tms)
 {
@@ -488,9 +478,12 @@ void Scadup::notify(SOCKET socket)
         if (network.first == socket) {
             network.second.active = false;
         }
-        for (auto& client : network.second.clients) {
-            if (client->socket == socket) {
-                client->active = false;
+        std::vector<Network*> clients = network.second.clients;
+        if (clients.size() > 0) {
+            for (auto& client : clients) {
+                if (client != nullptr && client->socket == socket) {
+                    client->active = false;
+                }
             }
         }
     }
@@ -663,7 +656,6 @@ int Scadup::Broker()
 ssize_t Scadup::Subscriber(const std::string& message, RECVCALLBACK callback)
 {
     signal(SIGABRT, signalCatch);
-    signal(SIGPIPE, signalCatch);
     signal(SIGQUIT, signalCatch);
     signal(SIGSEGV, signalCatch);
     signal(SEGV_MAPERR, signalCatch);
@@ -778,7 +770,7 @@ ssize_t Scadup::Publisher(const std::string& topic, const std::string& payload, 
     }
     m_networks[m_socket].method = PUBLISH;
     m_networks[m_socket].clients.emplace_back(&m_networks[m_socket]);
-    const int maxLen = payload.max_size();
+    const size_t maxLen = payload.max_size();
     Message msg = {};
     memset(&msg, 0, sizeof(Message));
     size = (size > maxLen ? maxLen : size);

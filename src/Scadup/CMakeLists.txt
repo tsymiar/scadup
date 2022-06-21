@@ -7,7 +7,8 @@ set(TARGET scadup)
 set(OPTION "-fPIC -pthread")
 set(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O0 -Wall -g -ggdb")
 set(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -Wall")
-set(CMAKE_CXX_FLAGS "-std=c++0x ${CMAKE_CXX_FLAGS} -g -ftest-coverage -fprofile-arcs")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x -g")
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ftest-coverage -fprofile-arcs")
 
 if (NOT WIN32)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated -Wno-format")
@@ -21,6 +22,7 @@ else()
     add_definitions(-DFULLY_COMPILE)
     include_directories(..)
 endif()
+
 #add_definitions(-D_NONE_BLOCK)
 
 file(GLOB SRC_FILE_LIST "*[^test]*.*[^.txt]*")
