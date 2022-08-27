@@ -9,6 +9,17 @@
 
 using namespace std;
 
+static void usage()
+{
+    cout << "Usage:" << endl
+        << "-S -- run as server" << endl
+        << "-C -- run as client" << endl
+        << "-B -- run as broker" << endl
+        << "sub [topic] -- run as subscriber" << endl
+        << "pub [topic] [payload] -- run as publisher messaging to broker" << endl
+        << "pub [topic] [-f [filename]] -- run as publisher send file content" << endl;
+}
+
 int main(int argc, char* argv[])
 {
     G_MethodEnum method = NONE;
@@ -18,15 +29,9 @@ int main(int argc, char* argv[])
             (argv1 == "-C" ? CLIENT :
                 (argv1 == "-B" ? BROKER :
                     (argv1 == "pub" ? PUBLISH :
-                        (argv1 == "sub" ? SUBSCRIBE : SERVER)))));
+                        (argv1 == "sub" ? SUBSCRIBE : NOTIMPL)))));
     } else {
-        cout << "Usage:" << endl
-            << "-S -- run as server" << endl
-            << "-C -- run as client" << endl
-            << "-B -- run as broker" << endl
-            << "sub [topic] -- run as subscriber" << endl
-            << "pub [topic] [payload] -- run as publisher messaging to broker" << endl
-            << "pub [topic] -f [filename] -- run as publisher send file content" << endl;
+        usage();
         return 0;
     }
 #ifdef _USE_FORK_PROCESS_
@@ -71,16 +76,18 @@ int main(int argc, char* argv[])
             scadup.Subscriber(topic);
             break;
         case PUBLISH:
-            if (argc == 4) {
-                param = string(argv[3]);
-                scadup.Publisher(topic, param);
-            }
             if (argc > 4 && string(argv[3]) == "-f") {
                 param = argv[4];
                 scadup.Publisher(topic, FileUtils::instance()->GetBinFile2String(param));
+            } else {
+                if (argc == 4) {
+                    param = string(argv[3]);
+                }
+                scadup.Publisher(topic, param);
             }
             break;
         default:
+            cout << "method [" << method << "] not implements." << endl;
             break;
         }
 #ifdef _USE_FORK_PROCESS_

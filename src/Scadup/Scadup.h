@@ -16,7 +16,8 @@ enum G_MethodEnum {
     BROKER,
     CLIENT,
     PUBLISH,
-    SUBSCRIBE
+    SUBSCRIBE,
+    NOTIMPL
 };
 
 #ifdef _WIN32
@@ -41,7 +42,7 @@ public:
         char rsv;
         int tag;
         volatile unsigned long long ssid; //ssid = port | socket | ip
-        char topic[32];
+        char keyword[32];
         unsigned int size;
     } __attribute__((packed));
 #pragma pack()
@@ -106,7 +107,7 @@ private:
     bool online(SOCKET);
     void finish();
     void notify(SOCKET);
-    void NotifyTask();
+    void NotifyHandle();
     void CallbackTask(TASKCALLBACK, SOCKET);
     int consume(Message& msg);
     int produce(const Message& msg);
