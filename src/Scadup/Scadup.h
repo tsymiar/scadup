@@ -106,7 +106,7 @@ private:
     bool checkSsid(SOCKET key, uint64_t ssid);
     bool online(SOCKET);
     void finish();
-    void notify(SOCKET);
+    void update(SOCKET);
     void NotifyHandle();
     void CallbackTask(TASKCALLBACK, SOCKET);
     int consume(Message& msg);
