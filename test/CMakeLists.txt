@@ -4,7 +4,7 @@ project(test CXX)
 set(CMAKE_CXX_STANDARD 11)
 set(OPTION "-fPIC -pthread")
 
-set(TARGET test)
+set(TARGET test_main)
 file(GLOB TEST_FILE "*test*.*")
 
 set(SCADUP_SRC ${CMAKE_SOURCE_DIR}/src)
