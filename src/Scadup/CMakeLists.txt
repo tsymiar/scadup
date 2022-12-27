@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.0)
 
-project(Scadup CXX)
+project(Scadup C CXX)
 
 set(CMAKE_CXX_STANDARD 11)
 set(TARGET scadup)
@@ -25,7 +25,7 @@ endif()
 
 #add_definitions(-D_NONE_BLOCK)
 
-file(GLOB SRC_FILE_LIST "*[^test]*.*[^.txt]*")
+file(GLOB SRC_FILE_LIST "../**/*[^test]*.*[^.txt]*")
 
 add_library(${TARGET} SHARED ${SRC_FILE_LIST})
 

@@ -20,6 +20,9 @@
 
 #define LOG_TAG "Scadup"
 #include "../Utils/logging.h"
+extern "C" {
+#include "../Utils/MsgQue.h"
+}
 
 #ifdef _WIN32
 #define close(s) {closesocket(s);WSACleanup();}
@@ -36,6 +39,7 @@ typedef int socklen_t;
 static unsigned int g_maxTimes = 100;
 char Scadup::G_MethodValue[][0xa] =
 { "NONE", "PRODUCER", "CONSUMER", "SERVER", "BROKER", "CLIENT", "PUBLISH", "SUBSCRIBE" };
+struct MsgQue g_msgQue;
 namespace {
     const unsigned int WAIT100ms = 100;
     const size_t HEAD_SIZE = sizeof(Scadup::Header);
@@ -84,6 +88,7 @@ int Scadup::Initialize(const char* ip, unsigned short port)
     }
     m_networks[socket].PORT = port;
     m_networks[socket].socket = m_socket = socket;
+    queue_init(&g_msgQue);
     return 0;
 }
 
@@ -658,6 +663,8 @@ void Scadup::finish()
 void Scadup::exit()
 {
     m_exit = true;
+    finish();
+    queue_del(&g_msgQue);
 }
 
 void Scadup::setTopic(const std::string& topic, Header& header)

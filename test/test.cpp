@@ -90,6 +90,7 @@ int main(int argc, char* argv[])
             cout << "method [" << method << "] not implements." << endl;
             break;
         }
+        scadup.exit();
 #ifdef _USE_FORK_PROCESS_
     } else if (child > 0) {
         cout << "child process " << child << " started" << endl;

@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.0)
 
-project(test CXX)
+project(test C CXX)
 set(CMAKE_CXX_STANDARD 11)
 set(OPTION "-fPIC -pthread")
 
-set(TARGET test_main)
+set(TARGET test_scadup)
 file(GLOB TEST_FILE "*test*.*")
 
 set(SCADUP_SRC ${CMAKE_SOURCE_DIR}/src)

@@ -2,8 +2,8 @@
 // Created by Shenyrion on 2022/6/8.
 //
 
-#ifndef DEVIDROID_FILEUTILS_H
-#define DEVIDROID_FILEUTILS_H
+#ifndef FILEUTILS_H
+#define FILEUTILS_H
 
 #include <memory>
 #include <string>
