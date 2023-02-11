@@ -21,7 +21,7 @@
 #define LOG_TAG "Scadup"
 #include "../Utils/logging.h"
 extern "C" {
-#include "../Utils/MsgQue.h"
+#include "../Utils/msg_que.h"
 }
 
 #ifdef _WIN32
@@ -373,16 +373,33 @@ ssize_t Scadup::Recv(uint8_t* buff, size_t size)
             if (client->method == CONSUMER)
                 socks.emplace_back(client->socket);
         }
+        {
+            void* front = queue_front(&g_msgQue);
+            if (front != NULL) {
+                Element elem = *(Element*)front;
+                if (Scadup::writes(elem.sock, (uint8_t*)&elem.msg, elem.len) >= 0) {
+                    queue_pop(&g_msgQue);
+                }
+            }
+        }
         for (auto& client : m_networks[m_socket].clients) {
             if (client != nullptr && strcmp(client->header.keyword, msg.header.keyword) == 0
                 && client->header.ssid != lastSsid
                 && client->method == PRODUCER) { // only consume should be sent
                 for (auto it = socks.begin(); it != socks.end(); ++it) {
                     SOCKET sock = *it;
-                    if (client->active && (sock > 0) && (stat = Scadup::writes(sock, message, total)) < 0) {
-                        update(sock);
-                        socks.erase(it);
-                        LOGE("Writes to [%d], %zu failed!", sock, total);
+                    if (client->active && sock > 0) {
+                        if ((stat = Scadup::writes(sock, message, total)) < 0) {
+                            update(sock);
+                            socks.erase(it);
+                            LOGE("Writes to [%d], %zu failed!", sock, total);
+                        }
+                    } else {
+                        Element elem;
+                        memcpy(&elem.msg, message, sizeof(elem.msg));
+                        elem.len = total;
+                        elem.sock = sock;
+                        queue_push(&g_msgQue, &elem);
                     }
                 }
                 deal = true;

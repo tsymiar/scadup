@@ -1,4 +1,4 @@
-#include "MsgQue.h"
+#include "msg_que.h"
 #include <stdlib.h>
 
 void queue_init(struct MsgQue* q)

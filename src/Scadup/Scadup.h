@@ -69,6 +69,11 @@ public:
         std::deque<const Message*> message{};
         std::vector<Network*> clients{};
     };
+    struct Element {
+        Message msg;
+        size_t len;
+        SOCKET sock;
+    };
     typedef int(*TASKCALLBACK)(Scadup*);
     typedef void(*RECVCALLBACK)(const Message&);
     static char G_MethodValue[][0xa];
