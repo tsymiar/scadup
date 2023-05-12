@@ -158,7 +158,7 @@ int Scadup::Start(G_MethodEnum method)
             setsockopt(accSock, SOL_SOCKET, SO_KEEPALIVE,
                 reinterpret_cast<const char*>(&set), sizeof(bool));
             getpeername(accSock, reinterpret_cast<struct sockaddr*>(&peerAddr), &peerLen);
-            Network* network = new Network();
+            auto* network = new Network();
             network->IP = inet_ntop(AF_INET, &peerAddr.sin_addr, ipaddr, sizeof(ipaddr));
             network->PORT = ntohs(peerAddr.sin_port);
             network->socket = accSock;
@@ -250,9 +250,9 @@ int Scadup::Connect()
     for (auto& callback : m_callbacks) {
         if (callback == nullptr)
             continue;
-        std::thread task(
-            &Scadup::CallbackTask,
-            this, callback, network.socket);
+        task = std::thread(
+                &Scadup::CallbackTask,
+                this, callback, network.socket);
         if (task.joinable())
             task.detach();
     }
@@ -305,7 +305,7 @@ ssize_t Scadup::Recv(uint8_t* buff, size_t size)
         }
         return 0;
     }
-    if (strncmp(reinterpret_cast<char*>(&header), "Scadup", 7) == 0)
+    if (strncmp(reinterpret_cast<char*>(&header), "Scadup", 6) == 0)
         return 0; // heartbeat ignore
     if (res != len) {
         LOGI("Got len = %d, expect %lu", res, len);
@@ -375,7 +375,7 @@ ssize_t Scadup::Recv(uint8_t* buff, size_t size)
         }
         {
             void* front = queue_front(&g_msgQue);
-            if (front != NULL) {
+            if (front != nullptr) {
                 Element elem = *(Element*)front;
                 if (Scadup::writes(elem.sock, (uint8_t*)&elem.msg, elem.len) >= 0) {
                     queue_pop(&g_msgQue);
@@ -432,7 +432,7 @@ bool Scadup::online(SOCKET socket)
         return false;
     }
     std::vector<Network*> clients = m_networks[m_socket].clients;
-    if (clients.size() > 0) {
+    if (!clients.empty()) {
         for (auto& client : clients) {
             if (client->socket == socket) {
                 return client->active;
@@ -528,7 +528,7 @@ void Scadup::update(SOCKET socket)
             network.second.active = false;
         }
         std::vector<Network*>& clients = network.second.clients;
-        if (clients.size() > 0) {
+        if (!clients.empty()) {
             for (auto& client : clients) {
                 if (client != nullptr && client->socket == socket) {
                     client->active = false;
