@@ -1,15 +1,15 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 2.8...3.16)
 
 project(test C CXX)
 set(CMAKE_CXX_STANDARD 11)
 set(OPTION "-fPIC -pthread")
 
-set(TARGET test_scadup)
+set(TARGET test)
 file(GLOB TEST_FILE "*test*.*")
 
 set(SCADUP_SRC ${CMAKE_SOURCE_DIR}/src)
 include_directories(${SCADUP_SRC})
-add_subdirectory(${SCADUP_SRC}/Scadup build)
+add_subdirectory(${SCADUP_SRC}/scadup build)
 find_library(SCADUP_LIB NAMES scadup PATHS build ${CMAKE_SOURCE_DIR}/lib NOTFOUND)
 
 #[[
@@ -36,9 +36,9 @@ endforeach()
 set(${result} ${srcfiles})
 endmacro()
 
-set(SUBDIRS Utils)
+set(SUBDIRS utils)
 if(NOT EXISTS ${SCADUP_LIB})
-    list(APPEND SUBDIRS Scadup)
+    list(APPEND SUBDIRS scadup)
 endif()
 
 GET_SRC_FILE(SRC_FILE "${SUBDIRS}")

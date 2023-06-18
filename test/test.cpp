@@ -1,5 +1,5 @@
-#include "Scadup/Scadup.h"
-#include "Utils/FileUtils.h"
+#include "scadup/Scadup.h"
+#include "utils/FileUtils.h"
 
 #ifndef _WIN32
 #include <unistd.h>

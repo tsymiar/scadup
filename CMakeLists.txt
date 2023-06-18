@@ -1,9 +1,9 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 2.8...3.16)
 
-project(Scadup_main CXX)
+project(main CXX)
 
 if("${ANDROID}" EQUAL "1")
-    add_subdirectory(src/Scadup)
+    add_subdirectory(src/scadup)
 else()
     add_subdirectory(test)
 endif()

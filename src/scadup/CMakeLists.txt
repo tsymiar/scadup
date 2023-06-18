@@ -1,9 +1,9 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 2.8...3.16)
 
-project(Scadup C CXX)
+set(TARGET scadup)
+project(${TARGET} C CXX)
 
 set(CMAKE_CXX_STANDARD 11)
-set(TARGET scadup)
 set(OPTION "-fPIC -pthread")
 set(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O0 -Wall -g -ggdb")
 set(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -Wall")
@@ -16,7 +16,7 @@ endif()
 
 if("${ANDROID}" EQUAL "1")
     set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}../../../jniLibs/${ANDROID_ABI})
-    include_directories(Scadup)
+    include_directories(scadup)
 else()
     set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/../../lib)
     add_definitions(-DFULLY_COMPILE)

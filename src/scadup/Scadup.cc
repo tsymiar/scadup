@@ -19,9 +19,9 @@
 #include <fstream>
 
 #define LOG_TAG "Scadup"
-#include "../Utils/logging.h"
+#include "../utils/logging.h"
 extern "C" {
-#include "../Utils/msg_que.h"
+#include "../utils/msg_que.h"
 }
 
 #ifdef _WIN32
