@@ -12,11 +12,11 @@ class FileUtils {
 public:
     static std::shared_ptr <FileUtils> instance();
 
-    std::string GetBinFile2String(const std::string& filename);
+    static std::string GetBinFile2String(const std::string& filename);
 
-    std::string getStrFile2string(const std::string& filename);
+    static std::string getStrFile2string(const std::string& filename);
 
-    std::string getVariable(const std::string& url, const std::string& key);
+    static std::string getVariable(const std::string& url, const std::string& key);
 
 private:
     FileUtils() = default;

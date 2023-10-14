@@ -12,12 +12,12 @@ using namespace std;
 static void usage()
 {
     cout << "Usage:" << endl
-        << "-S -- run as server" << endl
-        << "-C -- run as client" << endl
-        << "-B -- run as broker" << endl
+        << "brk         -- run as broker" << endl
         << "sub [topic] -- run as subscriber" << endl
         << "pub [topic] [payload] -- run as publisher messaging to broker" << endl
-        << "pub [topic] [-f [filename]] -- run as publisher send file content" << endl;
+        << "pub [topic] [-f [filename]] -- run as publisher send file content" << endl
+        << "-S  -- run as server" << endl
+        << "-C  -- run as client" << endl;
 }
 
 int main(int argc, char* argv[])
@@ -27,7 +27,7 @@ int main(int argc, char* argv[])
         string argv1 = string(argv[1]);
         method = (argv1 == "-S" ? SERVER :
             (argv1 == "-C" ? CLIENT :
-                (argv1 == "-B" ? BROKER :
+                (argv1 == "brk" ? BROKER :
                     (argv1 == "pub" ? PUBLISH :
                         (argv1 == "sub" ? SUBSCRIBE : NOTIMPL)))));
     } else {
@@ -47,6 +47,7 @@ int main(int argc, char* argv[])
         }
         if (IP.empty()) {
             IP = "192.168.0.6";
+            cout << "IP is null when parse 'scadup.cfg', default: " << IP << endl;
         }
         if (method >= CLIENT) {
             scadup.Initialize(IP.c_str(), PORT);

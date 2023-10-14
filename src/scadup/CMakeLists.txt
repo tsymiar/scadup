@@ -4,10 +4,10 @@ set(TARGET scadup)
 project(${TARGET} C CXX)
 
 set(CMAKE_CXX_STANDARD 11)
-set(OPTION "-fPIC -pthread")
-set(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O0 -Wall -g -ggdb")
+set(OPTION "-fPIC -pthread -g -ggdb")
+set(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O0 -Wall")
 set(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -Wall")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x -g")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ftest-coverage -fprofile-arcs")
 
 if (NOT WIN32)
@@ -28,6 +28,7 @@ endif()
 file(GLOB SRC_FILE_LIST "../**/*[^test]*.*[^.txt]*")
 
 add_library(${TARGET} SHARED ${SRC_FILE_LIST})
+#add_library(${TARGET} STATIC ${SRC_FILE_LIST})
 
 if("${ANDROID}" EQUAL "1")
     target_link_libraries(${TARGET} log android)

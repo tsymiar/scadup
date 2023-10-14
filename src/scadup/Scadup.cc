@@ -164,7 +164,7 @@ int Scadup::Start(G_MethodEnum method)
             network->socket = accSock;
             network->active = true;
             Header head{ 0, 0,
-                    network->header.ssid = setSsid(network->IP, network->PORT, network->socket), {0} };
+                    network->header.ssid = setSession(network->IP, network->PORT, network->socket), {0} };
             m_networks[m_socket].socket = accSock;
             m_networks[m_socket].clients.emplace_back(network);
             ::send(network->socket, (char*)&head, HEAD_SIZE, 0);
@@ -251,8 +251,8 @@ int Scadup::Connect()
         if (callback == nullptr)
             continue;
         task = std::thread(
-                &Scadup::CallbackTask,
-                this, callback, network.socket);
+            &Scadup::CallbackTask,
+            this, callback, network.socket);
         if (task.joinable())
             task.detach();
     }
@@ -366,7 +366,7 @@ ssize_t Scadup::Recv(uint8_t* buff, size_t size)
     if (msg.header.tag != 0) {
         using namespace std;
         bool deal = false;
-        msg.header.ssid = setSsid(network.IP, network.PORT, network.socket);
+        msg.header.ssid = setSession(network.IP, network.PORT, network.socket);
         memcpy(message, &msg, sizeof(Message));
         std::vector<SOCKET> socks;
         for (auto& client : m_networks[m_socket].clients) {
@@ -463,22 +463,28 @@ ssize_t Scadup::writes(SOCKET socket, const uint8_t* data, size_t len)
     }
     memset(buff, 0, left);
     memcpy(buff, data, left);
+    ssize_t wrote = 0;
     while (left > 0) {
-        ssize_t wrote = 0;
         if ((wrote = write(socket, reinterpret_cast<char*>(buff + wrote), left)) <= 0) {
             if (wrote < 0) {
                 if (errno == EINTR) {
                     wrote = 0; /* call write() again */
                 } else {
                     update(socket);
-                    delete[] buff;
+                    if (buff != nullptr) {
+                        delete[] buff;
+                    }
                     return -2; /* error */
                 }
             }
+            if (wrote > left)
+                break;
         }
         left -= wrote;
     }
-    delete[] buff;
+    if (buff != nullptr) {
+        delete[] buff;
+    }
     return ssize_t(len - left);
 }
 
@@ -551,6 +557,7 @@ void Scadup::NotifyHandle()
                 if (m_networks.size() <= 1) {
                     for (auto& client : it->second.clients) {
                         delete client;
+                        client = nullptr;
                     }
                     it = m_networks.begin();
                     continue;
@@ -565,11 +572,12 @@ void Scadup::NotifyHandle()
                         if (it->second.clients.size() == 1) {
                             delete it->second.clients[0];
                             it->second.clients.clear();
+                            it->second.clients[0] = nullptr;
                             break;
                         }
                         if (it->second.clients.empty() ||
                             it->second.clients.end() == it->second.clients.erase(at)) {
-                            delete* at;
+                            delete(*at);
                             return;
                         }
                         at = it->second.clients.begin();
@@ -597,7 +605,7 @@ void Scadup::CallbackTask(TASKCALLBACK callback, SOCKET socket)
     }
 }
 
-uint64_t Scadup::setSsid(const std::string& addr, int port, SOCKET socket)
+uint64_t Scadup::setSession(const std::string& addr, int port, SOCKET socket)
 {
     std::lock_guard<std::mutex> lock(m_lock);
     unsigned int ip = 0;
@@ -672,8 +680,11 @@ void Scadup::finish()
     }
     m_networks.clear();
     m_callbacks.clear();
-    for (auto msg : network.message) {
-        delete msg;
+    for (auto& msg : network.message) {
+        if (msg != nullptr) {
+            delete msg;
+            msg = nullptr;
+        }
     }
 }
 
@@ -684,7 +695,7 @@ void Scadup::exit()
     queue_del(&g_msgQue);
 }
 
-void Scadup::setTopic(const std::string& topic, Header& header)
+void Scadup::setHeadTopic(const std::string& topic, Header& header)
 {
     std::lock_guard<std::mutex> lock(m_lock);
     size_t size = topic.size();
@@ -744,11 +755,11 @@ ssize_t Scadup::Subscriber(const std::string& message, RECVCALLBACK callback)
             msg.header.size = size;
             msg.header.tag = CONSUMER;
             if (msg.header.ssid == 0) {
-                msg.header.ssid = setSsid(network.IP, network.PORT);
+                msg.header.ssid = setSession(network.IP, network.PORT);
             }
             // parse message divide to topic/etc...
             const std::string& topic = message; // "message.sub()...";
-            setTopic(topic, msg.header);
+            setHeadTopic(topic, msg.header);
             len = writes(network.socket, (uint8_t*)&msg, size);
             if (len < 0) {
                 LOGE("Writes %s", strerror(errno));
@@ -789,7 +800,8 @@ ssize_t Scadup::Subscriber(const std::string& message, RECVCALLBACK callback)
                     delete pMsg;
                 }
             }
-            delete[] body;
+            if (body != nullptr)
+                delete[] body;
         }
     } while (flag);
     finish();
@@ -816,7 +828,7 @@ ssize_t Scadup::Publisher(const std::string& topic, const std::string& payload, 
     size_t msgLen = sizeof msg + size;
     msg.header.size = static_cast<unsigned int>(msgLen);
     msg.header.tag = PRODUCER;
-    setTopic(topic, msg.header);
+    setHeadTopic(topic, msg.header);
     if (this->Connect() != 0) {
         LOGE("Connect failed!");
         return -2;

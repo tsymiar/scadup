@@ -12,10 +12,7 @@
 static std::once_flag g_create_flag;
 static std::shared_ptr<FileUtils> g_instance;
 
-FileUtils& FileUtils::operator=(const FileUtils &)
-{
-    return *this;
-}
+FileUtils& FileUtils::operator=(const FileUtils &) = default;
 
 std::shared_ptr<FileUtils> FileUtils::instance()
 {

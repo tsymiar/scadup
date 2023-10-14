@@ -106,8 +106,8 @@ private:
 private:
     ssize_t broadcast(const uint8_t* data, size_t len);
     ssize_t writes(SOCKET, const uint8_t*, size_t);
-    void setTopic(const std::string& topic, Header& header);
-    uint64_t setSsid(const std::string& addr, int port, SOCKET socket = 0);
+    void setHeadTopic(const std::string& topic, Header& header);
+    uint64_t setSession(const std::string& addr, int port, SOCKET socket = 0);
     bool checkSsid(SOCKET key, uint64_t ssid);
     bool online(SOCKET);
     void finish();
