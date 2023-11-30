@@ -2,7 +2,7 @@
 
 * Run as server
 
-    When instantiates the `Scadup` class, you can initialize by call `Initialize(PORT)`. Then call `Start()` to start a server process, you can also register callbacks to deal receives data by calling `registerCallback()/appendCallback` with parameter in `TASKCALLBACK` format.
+    When instantiates the `Scadup` class, you can initialize by call `Initialize(PORT)`. Then call `Start()` to start a server process, you can also register callbacks to deal receives data by calling `registerCallback()/appendCallback` with parameter in `TASK_CALLBACK` format.
 
 * Run as client
 

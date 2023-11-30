@@ -2,7 +2,12 @@ cmake_minimum_required(VERSION 2.8...3.16)
 
 project(test C CXX)
 set(CMAKE_CXX_STANDARD 11)
-set(OPTION "-fPIC -pthread -g -ggdb")
+set(OPTION "-fPIC -g -ggdb")
+if (NOT "${ANDROID}" EQUAL "1")
+    set(OPTION "${OPTION} -std=c++11")
+    set(EXTERN pthread)
+endif()
+add_definitions(${OPTION})
 
 set(TARGET test)
 file(GLOB TEST_FILE "*test*.*")
@@ -38,4 +43,6 @@ if(EXISTS ${SCADUP_LIB})
     target_link_libraries(${TARGET} ${SCADUP_LIB})
 endif()
 
-target_link_libraries(${TARGET} ${OPTION})
+target_link_libraries(${TARGET} ${EXTERN})
+
+file(COPY scadup.cfg DESTINATION ${CMAKE_BINARY_DIR}/test) 

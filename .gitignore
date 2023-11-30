@@ -52,7 +52,7 @@ Makefile
 .DS_Store
 .vs
 .vscode
-build
+build*
 lib
 Debug
 jniLibs

@@ -74,8 +74,8 @@ public:
         size_t len;
         SOCKET sock;
     };
-    typedef int(*TASKCALLBACK)(Scadup*);
-    typedef void(*RECVCALLBACK)(const Message&);
+    typedef int(*TASK_CALLBACK)(Scadup*);
+    typedef void(*RECV_CALLBACK)(const Message&);
     static char G_MethodValue[][0xa];
     Scadup() = default;
     virtual ~Scadup() = default;
@@ -85,15 +85,15 @@ public:
     static Scadup& GetInstance();
     // workflow
     int Start(G_MethodEnum = SERVER);
-    int Connect();
+    int Connect(unsigned int = 0);
     ssize_t Recv(uint8_t* buff, size_t size);
     //
     int Broker();
     ssize_t Publisher(const std::string& topic, const std::string& payload, ...);
-    ssize_t Subscriber(const std::string& message, RECVCALLBACK callback = nullptr);
+    ssize_t Subscriber(const std::string& message, RECV_CALLBACK callback = nullptr);
     // callback
-    void registerCallback(TASKCALLBACK func);
-    void appendCallback(TASKCALLBACK func);
+    void registerCallback(TASK_CALLBACK func);
+    void appendCallback(TASK_CALLBACK func);
     // private members should be deleted in release version head-file
     void exit();
     static void wait(unsigned int tms);
@@ -109,11 +109,11 @@ private:
     void setHeadTopic(const std::string& topic, Header& header);
     uint64_t setSession(const std::string& addr, int port, SOCKET socket = 0);
     bool checkSsid(SOCKET key, uint64_t ssid);
-    bool online(SOCKET);
+    bool isActive(SOCKET);
+    void offline(SOCKET);
     void finish();
-    void update(SOCKET);
     void NotifyHandle();
-    void CallbackTask(TASKCALLBACK, SOCKET);
+    void CallbackTask(TASK_CALLBACK, SOCKET);
     int consume(Message& msg);
     int produce(const Message& msg);
 };

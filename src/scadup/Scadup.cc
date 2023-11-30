@@ -30,13 +30,14 @@ typedef int socklen_t;
 #ifndef INET_ADDRSTRLEN
 #define INET_ADDRSTRLEN 16
 #endif
-#define write(x,y,z) ::send(x,(char*)(y),z,0)
 #define signal(_1,_2) {}
 #else
 #define WSACleanup()
 #endif
 
-static unsigned int g_maxTimes = 100;
+#define write(x,y,z) ::send(x,(char*)(y),z,MSG_NOSIGNAL)
+#define DELETE(ptr) { if (ptr != nullptr) { delete[] ptr; ptr = nullptr; } }
+
 char Scadup::G_MethodValue[][0xa] =
 { "NONE", "PRODUCER", "CONSUMER", "SERVER", "BROKER", "CLIENT", "PUBLISH", "SUBSCRIBE" };
 struct MsgQue g_msgQue;
@@ -190,7 +191,7 @@ int Scadup::Start(G_MethodEnum method)
     }
 }
 
-int Scadup::Connect()
+int Scadup::Connect(unsigned int _times)
 {
     sockaddr_in srvaddr{};
     srvaddr.sin_family = AF_INET;
@@ -212,13 +213,13 @@ int Scadup::Connect()
     network.active = true;
     LOGI("------ Connecting to %s:%d ------", ipaddr, port);
     while (::connect(network.socket, (struct sockaddr*)&srvaddr, sizeof(srvaddr)) == (-1)) {
-        if (tries < g_maxTimes) {
+        if (tries < _times) {
             wait(WAIT100ms * (long)pow(2, tries));
             tries++;
         } else {
             LOGE("Retrying to connect (tries=%d, %s).",
                 tries, (errno != 0 ? strerror(errno) : "No error"));
-            update(network.socket);
+            offline(network.socket);
             return -1;
         }
     }
@@ -226,12 +227,12 @@ int Scadup::Connect()
     try {
         // heartBeat
         std::thread([&](Scadup* Scadup) {
-            while (Scadup->online(network.socket)) {
+            while (Scadup->isActive(network.socket)) {
                 if (::send(network.socket, "Scadup", 7, 0) <= 0) {
                     // NOLINT(bugprone-lambda-function-name)
                     LOGE("Heartbeat to %s:%u arrests.", network.IP.c_str(),
                         network.PORT);
-                    update(network.socket);
+                    offline(network.socket);
                     break;
                 }
                 Scadup::wait(30000); // frequency 30s
@@ -256,7 +257,7 @@ int Scadup::Connect()
         if (task.joinable())
             task.detach();
     }
-    while (block && online(network.socket)) {
+    while (block && isActive(network.socket)) {
         wait(WAIT100ms);
     }
     return 0;
@@ -298,7 +299,7 @@ ssize_t Scadup::Recv(uint8_t* buff, size_t size)
     ssize_t res = ::recv(network.socket, reinterpret_cast<char*>(&header), len, 0);
     if (0 == res || (res < 0 && errno != EAGAIN)) {
         // delete this publisher network
-        update(network.socket);
+        offline(network.socket);
         if (res < 0) {
             LOGE("Recv fail(%ld): %s", res, strerror(errno));
             return -3;
@@ -336,16 +337,17 @@ ssize_t Scadup::Recv(uint8_t* buff, size_t size)
         total = sizeof(Message);
     auto* message = new(std::nothrow) uint8_t[total];
     if (message == nullptr) {
-        LOGE("Message malloc failed!");
+        LOGE("Message malloc size %zu failed!", total);
         return -1;
     }
+    memset(message, 0, total);
     ssize_t left = network.header.size - len;
     ssize_t err = -1;
     if (left > 0) {
         err = ::recv(network.socket, reinterpret_cast<char*>(message + len), left, 0);
         if (err <= 0 && errno != EINTR) {
-            update(network.socket);
-            delete[] message;
+            offline(network.socket);
+            DELETE(message);
             return -4;
         }
     }
@@ -373,60 +375,65 @@ ssize_t Scadup::Recv(uint8_t* buff, size_t size)
             if (client->method == CONSUMER)
                 socks.emplace_back(client->socket);
         }
-        {
-            void* front = queue_front(&g_msgQue);
-            if (front != nullptr) {
-                Element elem = *(Element*)front;
-                if (Scadup::writes(elem.sock, (uint8_t*)&elem.msg, elem.len) >= 0) {
+        if (0) {
+            void* head = queue_front(&g_msgQue);
+            if (head != nullptr) {
+                Element elem = *(Element*)head;
+                if (elem.len > 0 && Scadup::writes(elem.sock, (uint8_t*)&elem.msg, elem.len) >= 0) {
                     queue_pop(&g_msgQue);
                 }
             }
         }
-        for (auto& client : m_networks[m_socket].clients) {
+        for (auto cit = m_networks[m_socket].clients.begin(); cit != m_networks[m_socket].clients.end();) {
+            auto& client = *cit;
             if (client != nullptr && strcmp(client->header.keyword, msg.header.keyword) == 0
                 && client->header.ssid != lastSsid
                 && client->method == PRODUCER) { // only consume should be sent
-                for (auto it = socks.begin(); it != socks.end(); ++it) {
+                for (auto it = socks.begin(); it != socks.end();) {
                     SOCKET sock = *it;
                     if (client->active && sock > 0) {
                         if ((stat = Scadup::writes(sock, message, total)) < 0) {
-                            update(sock);
-                            socks.erase(it);
-                            LOGE("Writes to [%d], %zu failed!", sock, total);
+                            offline(sock);
+                            it = socks.erase(it);
+                            LOGE("Writes to sock[%d], size %zu failed!", sock, total);
+                            if (client->socket == sock) {
+                                m_networks[m_socket].clients.erase(cit);
+                                continue;
+                            }
+                            if (it == socks.end()) break; else continue;
                         }
                     } else {
-                        Element elem;
-                        memcpy(&elem.msg, message, sizeof(elem.msg));
-                        elem.len = total;
-                        elem.sock = sock;
+                        Element elem = { msg, total, sock };
                         queue_push(&g_msgQue, &elem);
                     }
+                    ++it;
                 }
                 deal = true;
             }
+            ++cit;
         }
         socks.clear();
         if (stat >= 0) {
             if (deal)
-                strcpy(msg.payload.status, "SUCCESS");
+                strncpy(msg.payload.status, "SUCCESS", 8);
             else
-                strcpy(msg.payload.status, "NOTDEAL");
+                strncpy(msg.payload.status, "NOTDEAL", 8);
         } else if (stat == -1)
-            strcpy(msg.payload.status, "NULLPTR");
+            strncpy(msg.payload.status, "NULLPTR", 8);
         else
-            strcpy(msg.payload.status, "FAILURE");
+            strncpy(msg.payload.status, "FAILURE", 8);
         memcpy(buff + HEAD_SIZE, msg.payload.status, sizeof(Message::payload.status));
     } else { // set inactive
-        update(network.socket);
+        offline(network.socket);
         LOGE("Unsupported method = %d", msg.header.tag);
-        delete[] message;
+        DELETE(message);
         return -5;
     }
-    delete[] message;
+    DELETE(message);
     return (err + res);
 }
 
-bool Scadup::online(SOCKET socket)
+bool Scadup::isActive(SOCKET socket)
 {
     if (socket == 0 || m_networks.empty()) {
         return false;
@@ -455,36 +462,32 @@ ssize_t Scadup::writes(SOCKET socket, const uint8_t* data, size_t len)
         return -2;
     std::mutex mtxLck = {};
     std::lock_guard<std::mutex> lock(mtxLck);
-    int left = (int)len;
+    ssize_t left = (ssize_t)len;
     auto* buff = new(std::nothrow) uint8_t[left];
     if (buff == nullptr) {
-        LOGE("Socket buffer malloc failed!");
+        LOGE("Socket buffer malloc size %zu failed!", left);
         return -1;
     }
     memset(buff, 0, left);
     memcpy(buff, data, left);
-    ssize_t wrote = 0;
-    while (left > 0) {
-        if ((wrote = write(socket, reinterpret_cast<char*>(buff + wrote), left)) <= 0) {
-            if (wrote < 0) {
+    ssize_t sent = 0;
+    while (left > 0 && (size_t)sent < len) {
+        if ((sent = write(socket, reinterpret_cast<char*>(buff + sent), left)) <= 0) {
+            if (sent < 0) {
                 if (errno == EINTR) {
-                    wrote = 0; /* call write() again */
+                    sent = 0; /* call write() again */
                 } else {
-                    update(socket);
-                    if (buff != nullptr) {
-                        delete[] buff;
-                    }
+                    offline(socket);
+                    DELETE(buff);
                     return -2; /* error */
                 }
             }
-            if (wrote > left)
+            if (sent > left)
                 break;
         }
-        left -= wrote;
+        left -= sent;
     }
-    if (buff != nullptr) {
-        delete[] buff;
-    }
+    DELETE(buff);
     return ssize_t(len - left);
 }
 
@@ -504,7 +507,7 @@ ssize_t Scadup::broadcast(const uint8_t* data, size_t len)
             continue;
         ssize_t stat = writes(client->socket, data, len);
         if (stat <= 0) {
-            update(client->socket);
+            offline(client->socket);
             continue;
         }
         bytes += stat;
@@ -513,20 +516,20 @@ ssize_t Scadup::broadcast(const uint8_t* data, size_t len)
     return bytes;
 }
 
-void Scadup::registerCallback(TASKCALLBACK func)
+void Scadup::registerCallback(TASK_CALLBACK func)
 {
     m_callbacks.clear();
     appendCallback(func);
 }
 
-void Scadup::appendCallback(TASKCALLBACK func)
+void Scadup::appendCallback(TASK_CALLBACK func)
 {
     if (std::find(m_callbacks.begin(), m_callbacks.end(), func) == m_callbacks.end()) {
         m_callbacks.emplace_back(func);
     }
 }
 
-void Scadup::update(SOCKET socket)
+void Scadup::offline(SOCKET socket)
 {
     std::lock_guard<std::mutex> lock(m_lock);
     for (auto& network : m_networks) {
@@ -546,7 +549,7 @@ void Scadup::update(SOCKET socket)
 
 void Scadup::NotifyHandle()
 {
-    while (online(m_socket)) {
+    while (isActive(m_socket)) {
         if (errno == EINTR || errno == EAGAIN || errno == ETIMEDOUT || errno == EWOULDBLOCK)
             continue;
         for (auto it = m_networks.begin(); it != m_networks.end(); ++it) {
@@ -556,8 +559,7 @@ void Scadup::NotifyHandle()
                 close(it->first);
                 if (m_networks.size() <= 1) {
                     for (auto& client : it->second.clients) {
-                        delete client;
-                        client = nullptr;
+                        DELETE(client);
                     }
                     it = m_networks.begin();
                     continue;
@@ -577,7 +579,7 @@ void Scadup::NotifyHandle()
                         }
                         if (it->second.clients.empty() ||
                             it->second.clients.end() == it->second.clients.erase(at)) {
-                            delete(*at);
+                            DELETE(*at);
                             return;
                         }
                         at = it->second.clients.begin();
@@ -591,9 +593,9 @@ void Scadup::NotifyHandle()
     }
 }
 
-void Scadup::CallbackTask(TASKCALLBACK callback, SOCKET socket)
+void Scadup::CallbackTask(TASK_CALLBACK callback, SOCKET socket)
 {
-    while (this->online(socket)) {
+    while (this->isActive(socket)) {
         wait(WAIT100ms);
         if (callback == nullptr) {
             continue;
@@ -671,20 +673,17 @@ void Scadup::finish()
     Network& network = m_networks[m_socket];
     for (auto& client : network.clients) {
         if (client->active) {
-            update(client->socket);
+            offline(client->socket);
         }
     }
-    update(network.socket);
+    offline(network.socket);
     while (network.active) {
         wait(WAIT100ms);
     }
     m_networks.clear();
     m_callbacks.clear();
     for (auto& msg : network.message) {
-        if (msg != nullptr) {
-            delete msg;
-            msg = nullptr;
-        }
+        DELETE(msg);
     }
 }
 
@@ -714,11 +713,11 @@ int Scadup::Broker()
     return this->Start(BROKER);
 }
 
-ssize_t Scadup::Subscriber(const std::string& message, RECVCALLBACK callback)
+ssize_t Scadup::Subscriber(const std::string& message, RECV_CALLBACK callback)
 {
     Network& network = m_networks[m_socket];
     network.method = SUBSCRIBE;
-    if (this->Connect() < 0) {
+    if (this->Connect(100) < 0) {
         return -2;
     }
 #define RECV_FLAG 0
@@ -745,7 +744,7 @@ ssize_t Scadup::Subscriber(const std::string& message, RECVCALLBACK callback)
         ssize_t len = ::recv(network.socket, reinterpret_cast<char*>(&msg), size, RECV_FLAG);
         if (len == 0 || (len < 0 && errno != EAGAIN)) {
             LOGE("Receive head fail[%ld], %s", len, strerror(errno));
-            update(network.socket);
+            offline(network.socket);
             return -3;
         }
         if (memcmp((char*)(&msg), "Scadup", 7) == 0)
@@ -779,8 +778,8 @@ ssize_t Scadup::Subscriber(const std::string& message, RECVCALLBACK callback)
             len = ::recv(network.socket, body, remain, RECV_FLAG);
             if (len < 0 || (len == 0 && errno != EINTR)) {
                 LOGE("Receive body fail, %s", strerror(errno));
-                update(network.socket);
-                delete[] body;
+                offline(network.socket);
+                DELETE(body);
                 return -5;
             } else {
                 msg.payload.status[0] = 'O';
@@ -797,11 +796,10 @@ ssize_t Scadup::Subscriber(const std::string& message, RECVCALLBACK callback)
                         callback(*pMsg);
                     }
                     LOGI("Message payload = [%s]-[%s]", pMsg->payload.status, pMsg->payload.content);
-                    delete pMsg;
+                    DELETE(pMsg);
                 }
             }
-            if (body != nullptr)
-                delete[] body;
+            DELETE(body);
         }
     } while (flag);
     finish();
@@ -815,9 +813,8 @@ ssize_t Scadup::Publisher(const std::string& topic, const std::string& payload, 
         LOGD("payload/topic was empty!");
         return 0;
     } else {
-        update(m_socket);
+        offline(m_socket);
         m_callbacks.clear();
-        g_maxTimes = 0;
     }
     m_networks[m_socket].method = PUBLISH;
     m_networks[m_socket].clients.emplace_back(&m_networks[m_socket]);
@@ -835,7 +832,7 @@ ssize_t Scadup::Publisher(const std::string& topic, const std::string& payload, 
     }
     auto* message = new(std::nothrow) uint8_t[msgLen + 1];
     if (message == nullptr) {
-        LOGE("Message malloc failed!");
+        LOGE("Message malloc len %zu failed!", msgLen + 1);
         return -1;
     }
     memcpy(message, &msg, sizeof(Message));
@@ -843,6 +840,6 @@ ssize_t Scadup::Publisher(const std::string& topic, const std::string& payload, 
     ssize_t len = this->broadcast(message, msgLen);
     wait(1000);
     finish();
-    delete[] message;
+    DELETE(message);
     return len;
 }
