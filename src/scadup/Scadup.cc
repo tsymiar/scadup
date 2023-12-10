@@ -31,12 +31,13 @@ typedef int socklen_t;
 #define INET_ADDRSTRLEN 16
 #endif
 #define signal(_1,_2) {}
+#define MSG_NOSIGNAL 0
 #else
 #define WSACleanup()
 #endif
 
 #define write(x,y,z) ::send(x,(char*)(y),z,MSG_NOSIGNAL)
-#define DELETE(ptr) { if (ptr != nullptr) { delete[] ptr; ptr = nullptr; } }
+#define Delete(ptr) { if (ptr != nullptr) { delete[] ptr; ptr = nullptr; } }
 
 char Scadup::G_MethodValue[][0xa] =
 { "NONE", "PRODUCER", "CONSUMER", "SERVER", "BROKER", "CLIENT", "PUBLISH", "SUBSCRIBE" };
@@ -347,7 +348,7 @@ ssize_t Scadup::Recv(uint8_t* buff, size_t size)
         err = ::recv(network.socket, reinterpret_cast<char*>(message + len), left, 0);
         if (err <= 0 && errno != EINTR) {
             offline(network.socket);
-            DELETE(message);
+            Delete(message);
             return -4;
         }
     }
@@ -426,10 +427,10 @@ ssize_t Scadup::Recv(uint8_t* buff, size_t size)
     } else { // set inactive
         offline(network.socket);
         LOGE("Unsupported method = %d", msg.header.tag);
-        DELETE(message);
+        Delete(message);
         return -5;
     }
-    DELETE(message);
+    Delete(message);
     return (err + res);
 }
 
@@ -478,7 +479,7 @@ ssize_t Scadup::writes(SOCKET socket, const uint8_t* data, size_t len)
                     sent = 0; /* call write() again */
                 } else {
                     offline(socket);
-                    DELETE(buff);
+                    Delete(buff);
                     return -2; /* error */
                 }
             }
@@ -487,7 +488,7 @@ ssize_t Scadup::writes(SOCKET socket, const uint8_t* data, size_t len)
         }
         left -= sent;
     }
-    DELETE(buff);
+    Delete(buff);
     return ssize_t(len - left);
 }
 
@@ -559,7 +560,7 @@ void Scadup::NotifyHandle()
                 close(it->first);
                 if (m_networks.size() <= 1) {
                     for (auto& client : it->second.clients) {
-                        DELETE(client);
+                        Delete(client);
                     }
                     it = m_networks.begin();
                     continue;
@@ -579,7 +580,7 @@ void Scadup::NotifyHandle()
                         }
                         if (it->second.clients.empty() ||
                             it->second.clients.end() == it->second.clients.erase(at)) {
-                            DELETE(*at);
+                            Delete(*at);
                             return;
                         }
                         at = it->second.clients.begin();
@@ -683,7 +684,7 @@ void Scadup::finish()
     m_networks.clear();
     m_callbacks.clear();
     for (auto& msg : network.message) {
-        DELETE(msg);
+        Delete(msg);
     }
 }
 
@@ -779,7 +780,7 @@ ssize_t Scadup::Subscriber(const std::string& message, RECV_CALLBACK callback)
             if (len < 0 || (len == 0 && errno != EINTR)) {
                 LOGE("Receive body fail, %s", strerror(errno));
                 offline(network.socket);
-                DELETE(body);
+                Delete(body);
                 return -5;
             } else {
                 msg.payload.status[0] = 'O';
@@ -796,10 +797,10 @@ ssize_t Scadup::Subscriber(const std::string& message, RECV_CALLBACK callback)
                         callback(*pMsg);
                     }
                     LOGI("Message payload = [%s]-[%s]", pMsg->payload.status, pMsg->payload.content);
-                    DELETE(pMsg);
+                    Delete(pMsg);
                 }
             }
-            DELETE(body);
+            Delete(body);
         }
     } while (flag);
     finish();
@@ -840,6 +841,6 @@ ssize_t Scadup::Publisher(const std::string& topic, const std::string& payload, 
     ssize_t len = this->broadcast(message, msgLen);
     wait(1000);
     finish();
-    DELETE(message);
+    Delete(message);
     return len;
 }

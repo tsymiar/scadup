@@ -20,7 +20,7 @@ std::shared_ptr<FileUtils> FileUtils::instance()
             g_create_flag,
             [&]() {
                 struct make_shared_enabler : FileUtils {};
-                std::make_shared<make_shared_enabler>();
+                g_instance = std::make_shared<make_shared_enabler>();
             }
     );
     return g_instance;
@@ -32,7 +32,7 @@ std::string FileUtils::GetBinFile2String(const std::string& filename)
     FILE* fp = fopen(filename.c_str(), "rb");
     if (fp) {
         fseek(fp, 0, SEEK_END);
-        long len = ftell(fp);
+        unsigned long len = ftell(fp);
         fseek(fp, 0, SEEK_SET);
         s.resize(len);
         fread((void*)s.data(), 1, len, fp);
