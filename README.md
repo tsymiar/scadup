@@ -5,4 +5,4 @@
 
 <font size=4>**S**</font>hare <font size=4>**c**</font>ommand <font size=4>**a**</font>nd <font size=4>**d**</font>ata <font size=4>**u**</font>nder _`scadup`_ <font size=4>**p**</font>roxy
 
-Detail description to this project click: [[_<font size=5>+</font>_](https://www.github.com/tsymiar/scadup/tree/main/doc%2Freadme.md)]
+Detail description to this project is [_<font size=3>here</font>_](https://www.github.com/tsymiar/scadup/tree/main/doc%2Freadme.md)

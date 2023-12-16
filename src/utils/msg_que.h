@@ -16,6 +16,6 @@ int queue_push(struct MsgQue* q, void* x);
 void* queue_front(struct MsgQue* q);
 void queue_pop(struct MsgQue* q);
 int queue_size(struct MsgQue* q);
-void queue_del(struct MsgQue* q);
+void queue_deinit(struct MsgQue* q);
 
 #endif

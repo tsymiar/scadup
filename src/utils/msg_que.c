@@ -15,13 +15,12 @@ static pthread_mutex_t g_mutex;
 
 void queue_init(struct MsgQue* q)
 {
-    q->head = q->tail = NULL;
     pthread_mutex_init(&g_mutex, NULL);
+    q->head = q->tail = NULL;
 }
 
-void queue_del(struct MsgQue* q)
+void queue_deinit(struct MsgQue* q)
 {
-    pthread_mutex_destroy(&g_mutex);
     if (q == NULL)
         return;
     INode* n = q->head;
@@ -31,6 +30,7 @@ void queue_del(struct MsgQue* q)
         n = i;
     }
     q->tail = q->head = NULL;
+    pthread_mutex_destroy(&g_mutex);
 }
 
 int queue_push(struct MsgQue* q, void* x)
@@ -65,11 +65,11 @@ void queue_pop(struct MsgQue* q)
         if (q->head->next == NULL) {
             free(q->head);
             q->head = q->tail = NULL;
+        } else {
+            INode* n = q->head->next;
+            free(q->head);
+            q->head = n;
         }
-    } else {
-        INode* n = q->head->next;
-        free(q->head);
-        q->head = n;
     }
     pthread_mutex_unlock(&g_mutex);
 }
@@ -96,9 +96,9 @@ int queue_size(struct MsgQue* q)
             i = i->next;
             s++;
         }
-        pthread_mutex_lock(&g_mutex);
+        pthread_mutex_unlock(&g_mutex);
         return s;
     }
-    pthread_mutex_lock(&g_mutex);
+    pthread_mutex_unlock(&g_mutex);
     return 0;
 }

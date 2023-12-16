@@ -43,7 +43,7 @@ inline const char* basename(const char* name)
 inline struct tm* times() { time_t now = time(NULL); static struct tm* local = NULL; local = localtime(&now); return local; }
 inline void logger(const char* fm, ...) { va_list args; va_start(args, fm); (void)vprintf(fm, args); va_end(args); (void)printf("\n"); }
 #define LOGI(fmt, ...) logger(TIME_FORMAT "[INFO]" LOCATE_FORMAT fmt, TIME_ARGS(times()), LOCATE_ARGS(LOG_TAG),##__VA_ARGS__)
-#define LOGD(fmt, ...) logger(TIME_FORMAT "[DEBUG]" LOCATE_FORMAT fmt, TIME_ARGS(times()), LOCATE_ARGS(LOG_TAG),##__VA_ARGS__)
+#define LOGW(fmt, ...) logger(TIME_FORMAT "[WARN]" LOCATE_FORMAT fmt, TIME_ARGS(times()), LOCATE_ARGS(LOG_TAG),##__VA_ARGS__)
 #define LOGE(fmt, ...) logger(TIME_FORMAT "[ERROR]" LOCATE_FORMAT fmt, TIME_ARGS(times()), LOCATE_ARGS(LOG_TAG),##__VA_ARGS__)
 #endif //ANDROID
 #endif //SCADUP_LOGGING_H

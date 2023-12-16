@@ -169,7 +169,7 @@ int Scadup::Start(G_MethodEnum method)
                     network->header.ssid = setSession(network->IP, network->PORT, network->socket), {0} };
             m_networks[m_socket].socket = accSock;
             m_networks[m_socket].clients.emplace_back(network);
-            ::send(network->socket, (char*)&head, HEAD_SIZE, 0);
+            ::send(network->socket, reinterpret_cast<char*>(&head), HEAD_SIZE, 0);
             LOGI("Accepted peer(%lu) address [%s:%d] (@ %d/%02d/%02d-%02d:%02d:%02d)",
                 (unsigned long)m_networks[m_socket].clients.size(),
                 network->IP.c_str(), network->PORT,
@@ -213,12 +213,12 @@ int Scadup::Connect(unsigned int _times)
     network.method = CLIENT;
     network.active = true;
     LOGI("------ Connecting to %s:%d ------", ipaddr, port);
-    while (::connect(network.socket, (struct sockaddr*)&srvaddr, sizeof(srvaddr)) == (-1)) {
+    while (::connect(network.socket, reinterpret_cast<struct sockaddr*>(&srvaddr), sizeof(srvaddr)) == (-1)) {
         if (tries < _times) {
             wait(WAIT100ms * (long)pow(2, tries));
             tries++;
         } else {
-            LOGE("Retrying to connect (tries=%d, %s).",
+            LOGE("Retrying to connect (times=%d, %s).",
                 tries, (errno != 0 ? strerror(errno) : "No error"));
             offline(network.socket);
             return -1;
@@ -230,7 +230,7 @@ int Scadup::Connect(unsigned int _times)
         std::thread([&](Scadup* Scadup) {
             while (Scadup->isActive(network.socket)) {
                 if (::send(network.socket, "Scadup", 7, 0) <= 0) {
-                    // NOLINT(bugprone-lambda-function-name)
+                    // NOLINT(bug prone-lambda-function-name)
                     LOGE("Heartbeat to %s:%u arrests.", network.IP.c_str(),
                         network.PORT);
                     offline(network.socket);
@@ -379,8 +379,8 @@ ssize_t Scadup::Recv(uint8_t* buff, size_t size)
         if (0) {
             void* head = queue_front(&g_msgQue);
             if (head != nullptr) {
-                Element elem = *(Element*)head;
-                if (elem.len > 0 && Scadup::writes(elem.sock, (uint8_t*)&elem.msg, elem.len) >= 0) {
+                Element elem = *reinterpret_cast<Element*>(head);
+                if (elem.len > 0 && Scadup::writes(elem.sock, reinterpret_cast<uint8_t*>(&elem.msg), elem.len) >= 0) {
                     queue_pop(&g_msgQue);
                 }
             }
@@ -662,9 +662,7 @@ int Scadup::consume(Message& msg)
     }
     msg.header = message->header;
     memcpy(&msg.payload, &message->payload, sizeof(Message::Payload));
-    if (size > 0) {
-        msg_que.pop_front();
-    }
+    msg_que.pop_front();
     // if 1: success, 0: nothing
     return static_cast<int>(size - msg_que.size());
 }
@@ -692,7 +690,7 @@ void Scadup::exit()
 {
     m_exit = true;
     finish();
-    queue_del(&g_msgQue);
+    queue_deinit(&g_msgQue);
 }
 
 void Scadup::setHeadTopic(const std::string& topic, Header& header)
@@ -737,7 +735,7 @@ ssize_t Scadup::Subscriber(const std::string& message, RECV_CALLBACK callback)
     const size_t size = HEAD_SIZE + sizeof(Message::Payload::status);
     do {
         if (m_exit) {
-            LOGD("Subscribe will exit");
+            LOGW("Subscribe will exit");
             break;
         }
         wait(100);
@@ -748,9 +746,9 @@ ssize_t Scadup::Subscriber(const std::string& message, RECV_CALLBACK callback)
             offline(network.socket);
             return -3;
         }
-        if (memcmp((char*)(&msg), "Scadup", 7) == 0)
+        if (memcmp(reinterpret_cast<char*>(&msg), "Scadup", 7) == 0)
             continue;
-        flag = (msg.header.ssid != 0 || len == 0);
+        flag = (msg.header.ssid != 0);
         if (msg.header.size == 0) {
             msg.header.size = size;
             msg.header.tag = CONSUMER;
@@ -760,7 +758,7 @@ ssize_t Scadup::Subscriber(const std::string& message, RECV_CALLBACK callback)
             // parse message divide to topic/etc...
             const std::string& topic = message; // "message.sub()...";
             setHeadTopic(topic, msg.header);
-            len = writes(network.socket, (uint8_t*)&msg, size);
+            len = writes(network.socket, reinterpret_cast<uint8_t*>(&msg), size);
             if (len < 0) {
                 LOGE("Writes %s", strerror(errno));
                 return -4;
@@ -786,7 +784,7 @@ ssize_t Scadup::Subscriber(const std::string& message, RECV_CALLBACK callback)
                 msg.payload.status[0] = 'O';
                 msg.payload.status[1] = 'K';
                 msg.payload.status[2] = '\0';
-                auto* pMsg = (Message*)new char[sizeof(Message) + len];
+                auto* pMsg = reinterpret_cast<Message*>(new char[sizeof(Message) + len]);
                 if (pMsg != nullptr) {
                     memcpy(pMsg, &msg, sizeof(Message));
                     if (len > 0) {
@@ -811,7 +809,7 @@ ssize_t Scadup::Publisher(const std::string& topic, const std::string& payload, 
 {
     size_t size = payload.size();
     if (topic.empty() || size == 0) {
-        LOGD("payload/topic was empty!");
+        LOGW("payload/topic was empty!");
         return 0;
     } else {
         offline(m_socket);

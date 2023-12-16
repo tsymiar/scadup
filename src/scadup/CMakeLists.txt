@@ -1,8 +1,6 @@
 cmake_minimum_required(VERSION 2.8...3.16)
 
 set(TARGET scadup)
-project(${TARGET} C CXX)
-
 if (NOT WIN32)
     set(OPTION "-fPIC -g -ggdb")
     if (NOT "${ANDROID}" EQUAL "1")
@@ -14,8 +12,8 @@ set(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -Wall")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ftest-coverage -fprofile-arcs")
+#add_definitions(-D_NONE_BLOCK)
 add_definitions(${OPTION})
-
 if (NOT WIN32)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated -Wno-format")
 endif()
@@ -29,10 +27,8 @@ else()
     include_directories(..)
 endif()
 
-#add_definitions(-D_NONE_BLOCK)
-
 file(GLOB SRC_FILE_LIST "../**/*[^test]*.*[^.txt]*")
-
+project(${TARGET} C CXX)
 add_library(${TARGET} SHARED ${SRC_FILE_LIST})
 #add_library(${TARGET} STATIC ${SRC_FILE_LIST})
 

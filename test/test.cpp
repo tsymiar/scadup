@@ -15,9 +15,7 @@ static void usage()
         << "brk         -- run as broker" << endl
         << "sub [topic] -- run as subscriber" << endl
         << "pub [topic] [payload] -- run as publisher messaging to broker" << endl
-        << "pub [topic] [-f [filename]] -- run as publisher send file content" << endl
-        << "-S  -- run as server" << endl
-        << "-C  -- run as client" << endl;
+        << "pub [topic] [-f [filename]] -- run as publisher send file content" << endl;
 }
 
 int main(int argc, char* argv[])
@@ -25,11 +23,10 @@ int main(int argc, char* argv[])
     G_MethodEnum method = NONE;
     if (argc > 1) {
         string argv1 = string(argv[1]);
-        method = (argv1 == "-S" ? SERVER :
-            (argv1 == "-C" ? CLIENT :
-                (argv1 == "brk" ? BROKER :
-                    (argv1 == "pub" ? PUBLISH :
-                        (argv1 == "sub" ? SUBSCRIBE : NOTIMPL)))));
+        method =
+            (argv1 == "brk" ? BROKER :
+                (argv1 == "pub" ? PUBLISH :
+                    (argv1 == "sub" ? SUBSCRIBE : SERVER)));
     } else {
         usage();
         return 0;
@@ -64,12 +61,6 @@ int main(int argc, char* argv[])
         }
         string param = "a123+/";
         switch (method) {
-        case CLIENT:
-            scadup.Connect();
-            break;
-        case SERVER:
-            scadup.Start();
-            break;
         case BROKER:
             scadup.Broker();
             break;

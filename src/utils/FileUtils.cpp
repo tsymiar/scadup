@@ -12,16 +12,16 @@
 static std::once_flag g_create_flag;
 static std::shared_ptr<FileUtils> g_instance;
 
-FileUtils& FileUtils::operator=(const FileUtils &) = default;
+FileUtils& FileUtils::operator=(const FileUtils&) = default;
 
 std::shared_ptr<FileUtils> FileUtils::instance()
 {
     std::call_once(
-            g_create_flag,
-            [&]() {
-                struct make_shared_enabler : FileUtils {};
-                g_instance = std::make_shared<make_shared_enabler>();
-            }
+        g_create_flag,
+        [&]() {
+            struct make_shared_enabler : FileUtils { };
+            g_instance = std::make_shared<make_shared_enabler>();
+        }
     );
     return g_instance;
 }
@@ -38,7 +38,7 @@ std::string FileUtils::GetBinFile2String(const std::string& filename)
         fread((void*)s.data(), 1, len, fp);
         fclose(fp);
     } else {
-        LOGE("file[%s] open fail: %d", filename.c_str(), strerror(errno));
+        LOGE("file [%s] open failed: %s", filename.c_str(), strerror(errno));
     }
     return s;
 }
@@ -69,7 +69,7 @@ std::string FileUtils::getVariable(const std::string& url, const std::string& ke
         }
     }
     if ((pos = val.find('\n')) != std::string::npos) {
-        val = val.substr(0, pos);
+        val.resize(pos);
     }
     return val;
 }
