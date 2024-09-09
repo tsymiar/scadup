@@ -19,7 +19,7 @@ if (NOT WIN32)
 endif()
 
 if("${ANDROID}" EQUAL "1")
-    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}../../../jniLibs/${ANDROID_ABI})
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/../../../../jniLibs/${ANDROID_ABI})
     include_directories(scadup)
 else()
     set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/../../lib)

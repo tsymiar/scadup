@@ -22,9 +22,11 @@ inline const char* basename(const char* name)
 #endif
 #ifdef __ANDROID__
 #include <android/log.h>
-#define LOGI(fmt, ...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG,"(%s:%d)[%s]: " fmt, basename((char*)__FILE__), __LINE__, __FUNCTION__, ##__VA_ARGS__)
-#define LOGD(fmt, ...) __android_log_print(ANDROID_LOG_DEBUG,LOG_TAG,"(%s:%d)[%s]: " fmt, basename((char*)__FILE__), __LINE__, __FUNCTION__, ##__VA_ARGS__)
-#define LOGE(fmt, ...) __android_log_print(ANDROID_LOG_ERROR,LOG_TAG,"(%s:%d)[%s]: " fmt, basename((char*)__FILE__), __LINE__, __FUNCTION__, ##__VA_ARGS__)
+#define _LOG_(level, fmt, ...) __android_log_print(level, LOG_TAG,"(%s:%d)[%s]: " fmt, basename((char*)__FILE__), __LINE__, __FUNCTION__, ##__VA_ARGS__)
+#define LOGD(fmt, ...) _LOG_(ANDROID_LOG_DEBUG, fmt, ##__VA_ARGS__)
+#define LOGI(fmt, ...) _LOG_(ANDROID_LOG_INFO, fmt, ##__VA_ARGS__)
+#define LOGW(fmt, ...) _LOG_(ANDROID_LOG_WARN, fmt, ##__VA_ARGS__)
+#define LOGE(fmt, ...) _LOG_(ANDROID_LOG_ERROR, fmt, ##__VA_ARGS__)
 #else
 #ifdef NOTIME
 #define TIME_ARGS(_ptm)
