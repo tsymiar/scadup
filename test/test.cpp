@@ -43,7 +43,7 @@ int main(int argc, char* argv[])
             IP = FileUtils::instance()->getVariable(content, "IP");
         }
         if (IP.empty()) {
-            IP = "192.168.0.6";
+            IP = "127.0.0.1";
             cout << "IP is null when parse 'scadup.cfg', default: " << IP << endl;
         }
         if (method >= CLIENT) {
@@ -70,7 +70,7 @@ int main(int argc, char* argv[])
         case PUBLISH:
             if (argc > 4 && string(argv[3]) == "-f") {
                 param = argv[4];
-                scadup.Publisher(topic, FileUtils::instance()->GetBinFile2String(param));
+                scadup.Publisher(topic, FileUtils::instance()->GetFileStringContent(param));
             } else {
                 if (argc == 4) {
                     param = string(argv[3]);

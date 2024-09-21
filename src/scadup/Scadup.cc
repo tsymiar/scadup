@@ -716,7 +716,7 @@ ssize_t Scadup::Subscriber(const std::string& message, RECV_CALLBACK callback)
 {
     Network& network = m_networks[m_socket];
     network.method = SUBSCRIBE;
-    if (this->Connect(100) < 0) {
+    if (this->Connect(60) < 0) {
         return -2;
     }
 #define RECV_FLAG 0
@@ -825,7 +825,7 @@ ssize_t Scadup::Publisher(const std::string& topic, const std::string& payload, 
     msg.header.size = static_cast<unsigned int>(msgLen);
     msg.header.tag = PRODUCER;
     setHeadTopic(topic, msg.header);
-    if (this->Connect() != 0) {
+    if (this->Connect(3) != 0) {
         LOGE("Connect failed!");
         return -2;
     }

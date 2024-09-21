@@ -8,6 +8,8 @@
 
 #define LOG_TAG "FileUtils"
 #include "logging.h"
+#include <cstdio>
+#include <iostream>
 
 static std::once_flag g_create_flag;
 static std::shared_ptr<FileUtils> g_instance;
@@ -26,21 +28,18 @@ std::shared_ptr<FileUtils> FileUtils::instance()
     return g_instance;
 }
 
-std::string FileUtils::GetBinFile2String(const std::string& filename)
+std::string FileUtils::GetFileStringContent(const std::string& filename)
 {
-    std::string s{};
-    FILE* fp = fopen(filename.c_str(), "rb");
-    if (fp) {
-        fseek(fp, 0, SEEK_END);
-        unsigned long len = ftell(fp);
-        fseek(fp, 0, SEEK_SET);
-        s.resize(len);
-        fread((void*)s.data(), 1, len, fp);
-        fclose(fp);
-    } else {
-        LOGE("file [%s] open failed: %s", filename.c_str(), strerror(errno));
+    std::string content{};
+    std::ifstream file(filename, std::ios::binary);
+    if (!file.fail()) {
+        file.seekg(0, std::ios::end);
+        content.resize(file.tellg());
+        file.seekg(0, std::ios::beg);
+        file.read(&content[0], content.size());
+        file.close();
     }
-    return s;
+    return content;
 }
 
 std::string FileUtils::getStrFile2string(const std::string& filename)
