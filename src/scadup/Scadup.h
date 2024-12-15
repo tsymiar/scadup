@@ -6,114 +6,113 @@
 #include <memory>
 #include <mutex>
 #include <map>
+#include <vector>
 #include <functional>
+#include <algorithm>
+#include <iostream>
+#include <cstdlib>
+#include <chrono>
+#include <thread>
+#include <cmath>
+#include <csignal>
+#include <fstream>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <unistd.h>
 
-enum G_MethodEnum {
-    NONE = 0,
-    PRODUCER,
-    CONSUMER,
-    SERVER,
-    BROKER,
-    CLIENT,
-    PUBLISH,
-    SUBSCRIBE,
-    NOTIMPL
-};
+#define LOG_TAG "Scadup"
+#include "../utils/logging.h"
+extern "C" {
+#include "../utils/msg_que.h"
+}
 
-#ifdef _WIN32
-#define WINDOWS_IGNORE_PACKING_MISMATCH
-#pragma warning(disable:4996)
-#pragma warning(disable:4267)
-#define packed
-#define __attribute__(a)
-typedef int ssize_t;
-#pragma comment(lib, "WS2_32.lib")
-#include <WinSock2.h>
-#define CONTENT_SIZE 256
-#else
 using SOCKET = int;
-#define CONTENT_SIZE 0
-#endif
+const unsigned int Wait100ms = 100;
+#define write(x,y,z) ::send(x,(char*)(y),z,MSG_NOSIGNAL)
+#define Delete(ptr) { if (ptr != nullptr) { delete[] ptr; ptr = nullptr; } }
 
-class Scadup {
-public:
-#pragma pack(1)
+inline void wait(unsigned int tms)
+{
+    std::this_thread::sleep_for(std::chrono::microseconds(tms));
+}
+
+namespace Scadup {
+    enum G_ScaFlag {
+        NONE = 0,
+        BROKER,
+        PUBLISHER,
+        SUBSCRIBER,
+        MAX_VAL
+    };
     struct Header {
-        char rsv;
-        int tag;
-        volatile unsigned long long ssid; //ssid = port | socket | ip
-        char keyword[32];
-        unsigned int size;
-    } __attribute__((packed));
-#pragma pack()
-#pragma pack(1)
+        uint8_t rsv;
+        G_ScaFlag flag;
+        uint32_t size;
+        uint32_t topic;
+        volatile uint64_t ssid; //ssid = (port | key | ip)
+    } __attribute__((aligned(4)));
     struct Message {
-        Header header{};
+        Header head{};
         struct Payload {
             char status[8];
-            char content[CONTENT_SIZE];
-        } __attribute__((packed)) payload {};
-        void* operator new(size_t, const Message& msg) {
+            char* content = nullptr;
+        } __attribute__((aligned(4))) payload { };
+        void* operator new(size_t, const Message& msg)
+        {
             static void* mss = (void*)(&msg);
             return mss;
         }
-    } __attribute__((packed));
-#pragma pack()
+    } __attribute__((aligned(4)));
     struct Network {
         SOCKET socket = 0;
-        std::string IP{};
+        Header head;
+        char IP[INET_ADDRSTRLEN];
         unsigned short PORT = 0;
         volatile bool active = false;
-        G_MethodEnum method = SERVER;
-        Header header{};
-        std::deque<const Message*> message{};
-        std::vector<Network*> clients{};
     };
-    struct Element {
-        Message msg;
-        size_t len;
-        SOCKET sock;
-    };
-    typedef int(*TASK_CALLBACK)(Scadup*);
+    const size_t HEAD_SIZE = sizeof(Header);
     typedef void(*RECV_CALLBACK)(const Message&);
-    static char G_MethodValue[][0xa];
-    Scadup() = default;
-    virtual ~Scadup() = default;
-public:
-    int Initialize(unsigned short port);
-    int Initialize(const char* ip, unsigned short port);
-    static Scadup& GetInstance();
-    // workflow
-    int Start(G_MethodEnum = SERVER);
-    int Connect(unsigned int = 0);
-    ssize_t Recv(uint8_t* buff, size_t size);
-    //
-    int Broker();
-    ssize_t Publisher(const std::string& topic, const std::string& payload, ...);
-    ssize_t Subscriber(const std::string& message, RECV_CALLBACK callback = nullptr);
-    // callback
-    void registerCallback(TASK_CALLBACK func);
-    void appendCallback(TASK_CALLBACK func);
-    // private members should be deleted in release version head-file
-    void exit();
-    static void wait(unsigned int tms);
-private:
-    std::map<SOCKET, Network> m_networks{};
-    std::vector<int(*)(Scadup*)> m_callbacks{};
-    std::mutex m_lock = {};
-    SOCKET m_socket = 0;
-    bool m_exit = false;
-private:
-    ssize_t broadcast(const uint8_t* data, size_t len);
-    ssize_t writes(SOCKET, const uint8_t*, size_t);
-    void setHeadTopic(const std::string& topic, Header& header);
-    uint64_t setSession(const std::string& addr, int port, SOCKET socket = 0);
-    bool checkSsid(SOCKET key, uint64_t ssid);
-    bool isActive(SOCKET);
-    void offline(SOCKET);
-    void finish();
-    void NotifyHandle();
-    void CallbackTask(TASK_CALLBACK, SOCKET);
-    int consume(Message& msg);
-    int produce(const Message& msg);
-};
+    typedef std::map<G_ScaFlag, std::vector<Network>> Networks;
+    extern ssize_t writes(SOCKET socket, const uint8_t* data, size_t len);
+    extern int connect(const char* ip, unsigned short port, unsigned int total);
+    class Broker {
+    public:
+        static Broker& instance();
+        int setup(unsigned short = 9999);
+        int broker();
+        void exit();
+    private:
+        int ProxyTask(Networks&, const Network&);
+        void CheckTask(Networks&, bool*);
+        void setOffline(Networks&, Network);
+        uint64_t setSession(const std::string&, unsigned short, SOCKET = 0);
+        bool checkSsid(SOCKET, uint64_t);
+    private:
+        std::mutex m_lock = {};
+        Networks m_networks{};
+        SOCKET m_socket = 0;
+        bool m_active = false;
+    };
+    class Publisher {
+    public:
+        int setup(const char*, unsigned short = 9999);
+        int publish(uint32_t, const std::string&, ...);
+    private:
+        ssize_t broadcast(const uint8_t*, size_t);
+    private:
+        SOCKET m_socket;
+        uint64_t m_ssid;
+    };
+    class Subscriber {
+    public:
+        int setup(const char*, unsigned short = 9999);
+        ssize_t subscribe(uint32_t, RECV_CALLBACK = nullptr);
+        void exit();
+    private:
+        uint64_t m_ssid;
+        uint32_t m_topic;
+        SOCKET m_socket = 0;
+        bool m_exit = false;
+    };
+}
