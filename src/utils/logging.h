@@ -22,9 +22,11 @@ inline const char* basename(const char* name)
 #endif
 #ifdef __ANDROID__
 #include <android/log.h>
-#define LOGI(fmt, ...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG,"(%s:%d)[%s]: " fmt, basename((char*)__FILE__), __LINE__, __FUNCTION__, ##__VA_ARGS__)
-#define LOGD(fmt, ...) __android_log_print(ANDROID_LOG_DEBUG,LOG_TAG,"(%s:%d)[%s]: " fmt, basename((char*)__FILE__), __LINE__, __FUNCTION__, ##__VA_ARGS__)
-#define LOGE(fmt, ...) __android_log_print(ANDROID_LOG_ERROR,LOG_TAG,"(%s:%d)[%s]: " fmt, basename((char*)__FILE__), __LINE__, __FUNCTION__, ##__VA_ARGS__)
+#define _LOG_(level, fmt, ...) __android_log_print(level, LOG_TAG,"(%s:%d)[%s]: " fmt, basename(const_cast<char*>(__FILE__)), __LINE__, __FUNCTION__, ##__VA_ARGS__)
+#define LOGD(fmt, ...) _LOG_(ANDROID_LOG_DEBUG, fmt, ##__VA_ARGS__)
+#define LOGI(fmt, ...) _LOG_(ANDROID_LOG_INFO, fmt, ##__VA_ARGS__)
+#define LOGW(fmt, ...) _LOG_(ANDROID_LOG_WARN, fmt, ##__VA_ARGS__)
+#define LOGE(fmt, ...) _LOG_(ANDROID_LOG_ERROR, fmt, ##__VA_ARGS__)
 #else
 #ifdef NOTIME
 #define TIME_ARGS(_ptm)
@@ -37,13 +39,13 @@ inline const char* basename(const char* name)
 #define LOCATE_ARGS
 #define LOCATE_FORMAT
 #else
-#define LOCATE_ARGS(_module) _module,basename((char*)__FILE__),__LINE__,__FUNCTION__
+#define LOCATE_ARGS(_module) _module,basename(const_cast<char*>(__FILE__)),__LINE__,__FUNCTION__
 #define LOCATE_FORMAT "[%s](%s:%d)[%s]: "
 #endif //NOLOCATE
 inline struct tm* times() { time_t now = time(NULL); static struct tm* local = NULL; local = localtime(&now); return local; }
-inline void logger(const char* fm, ...) { va_list args; va_start(args, fm); (void)vprintf(fm, args); va_end(args); (void)printf("\n"); }
+inline void logger(const char* fm, ...) { va_list args; va_start(args, fm); static_cast<void>(vprintf(fm, args)); va_end(args); static_cast<void>(printf("\n")); }
 #define LOGI(fmt, ...) logger(TIME_FORMAT "[INFO]" LOCATE_FORMAT fmt, TIME_ARGS(times()), LOCATE_ARGS(LOG_TAG),##__VA_ARGS__)
-#define LOGD(fmt, ...) logger(TIME_FORMAT "[DEBUG]" LOCATE_FORMAT fmt, TIME_ARGS(times()), LOCATE_ARGS(LOG_TAG),##__VA_ARGS__)
+#define LOGW(fmt, ...) logger(TIME_FORMAT "[WARN]" LOCATE_FORMAT fmt, TIME_ARGS(times()), LOCATE_ARGS(LOG_TAG),##__VA_ARGS__)
 #define LOGE(fmt, ...) logger(TIME_FORMAT "[ERROR]" LOCATE_FORMAT fmt, TIME_ARGS(times()), LOCATE_ARGS(LOG_TAG),##__VA_ARGS__)
 #endif //ANDROID
 #endif //SCADUP_LOGGING_H

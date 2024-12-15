@@ -12,7 +12,7 @@ class FileUtils {
 public:
     static std::shared_ptr <FileUtils> instance();
 
-    static std::string GetBinFile2String(const std::string& filename);
+    static std::string GetFileStringContent(const std::string& filename);
 
     static std::string getStrFile2string(const std::string& filename);
 
