@@ -46,7 +46,8 @@ namespace Scadup {
         MAX_VAL
     };
     struct Header {
-        uint8_t rsv;
+        uint8_t rsvp;
+        uint8_t cmd;
         G_ScaFlag flag;
         uint32_t size;
         uint32_t topic;
@@ -76,6 +77,7 @@ namespace Scadup {
     typedef std::map<G_ScaFlag, std::vector<Network>> Networks;
     extern ssize_t writes(SOCKET socket, const uint8_t* data, size_t len);
     extern int connect(const char* ip, unsigned short port, unsigned int total);
+    extern SOCKET socket2Broker(const char* ip, unsigned short port, uint64_t& ssid, uint32_t timeout);
     class Broker {
     public:
         static Broker& instance();
@@ -84,10 +86,11 @@ namespace Scadup {
         void exit();
     private:
         int ProxyTask(Networks&, const Network&);
-        void CheckTask(Networks&, bool*);
-        void setOffline(Networks&, Network);
+        void checkAlive(Networks&, bool*);
+        void setOffline(Networks&, SOCKET);
         uint64_t setSession(const std::string&, unsigned short, SOCKET = 0);
         bool checkSsid(SOCKET, uint64_t);
+        void taskAllot(Networks&, const Network&);
     private:
         std::mutex m_lock = {};
         Networks m_networks{};
@@ -96,7 +99,7 @@ namespace Scadup {
     };
     class Publisher {
     public:
-        int setup(const char*, unsigned short = 9999);
+        void setup(const char*, unsigned short = 9999);
         int publish(uint32_t, const std::string&, ...);
     private:
         ssize_t broadcast(const uint8_t*, size_t);
@@ -106,9 +109,11 @@ namespace Scadup {
     };
     class Subscriber {
     public:
-        int setup(const char*, unsigned short = 9999);
+        void setup(const char*, unsigned short = 9999);
         ssize_t subscribe(uint32_t, RECV_CALLBACK = nullptr);
         void exit();
+    private:
+        void keepalive(SOCKET, bool&);
     private:
         uint64_t m_ssid;
         uint32_t m_topic;

@@ -1,9 +1,14 @@
 #!/bin/bash
-if [ -d build ]; then
-    rm -rvf build
+if [ "$1" == "clean" ]; then
+    rm -rvf .vs* build jniLibs lib out
+    export TERM=xterm
     clear
+else
+if [ ! -d build ]; then
+    mkdir build
 fi
-mkdir build; cd build
+cd build
 cmake ..
 make -j8
 cd -
+fi

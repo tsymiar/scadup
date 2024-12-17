@@ -1,28 +1,10 @@
 #include "Scadup.h"
 
 using namespace Scadup;
-extern const char* GET_VAL(G_ScaFlag x);
 
-int Publisher::setup(const char* ip, unsigned short port)
+void Publisher::setup(const char* ip, unsigned short port)
 {
-    m_socket = connect(ip, port, 3);
-    if (m_socket <= 0) {
-        LOGE("Connect fail: %d, %s!", m_socket, strerror(errno));
-        return -1;
-    }
-    Header head{};
-    ssize_t size = ::recv(m_socket, &head, sizeof(head), 0);
-    if (size > 0) {
-        if (head.size == sizeof(head) && head.flag == BROKER)
-            m_ssid = head.ssid;
-        else
-            LOGW("Error flag %s, size=%d", GET_VAL(head.flag), head.size);
-    } else {
-        LOGE("Recv fail(%ld), close %d: %s", size, m_socket, strerror(errno));
-        close(m_socket);
-        return -3;
-    }
-    return 0;
+    m_socket = socket2Broker(ip, port, m_ssid, 3);
 }
 
 ssize_t Publisher::broadcast(const uint8_t* data, size_t len)
@@ -46,7 +28,7 @@ ssize_t Publisher::broadcast(const uint8_t* data, size_t len)
 
 int Publisher::publish(uint32_t topic, const std::string& payload, ...)
 {
-    LOGI("begin publish to BROKER, ssid=%llu, '%s'", m_ssid, payload.c_str());
+    LOGI("begin publish to BROKER, ssid=%llu, msg=\"%s\"", m_ssid, payload.c_str());
     size_t size = payload.size();
     if (size == 0) {
         LOGW("Payload was empty!");
@@ -70,7 +52,8 @@ int Publisher::publish(uint32_t topic, const std::string& payload, ...)
     memcpy(message, &msg, sizeof(Message));
     memcpy(message + HEAD_SIZE + sizeof(Message::Payload::status), payload.c_str(), size);
 
-    broadcast(message, msgLen);
+    ssize_t bytes = broadcast(message, msgLen);
+    LOGI("broadcast message size expect=%d, bytes=%d.", msgLen, bytes);
     wait(1000);
     Delete(message);
 

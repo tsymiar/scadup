@@ -42,7 +42,7 @@ int main(int argc, char* argv[])
     cout << argv[0] << ": start [" << flag << "](" << GET_VAL(flag) << ")" << endl;
     uint32_t topic = 0x1234;
     if (argc > 2) {
-        topic = atoi(argv[2]);
+        topic = strtol(argv[2], NULL, 16);
     }
     string message = "a123+/";
     Broker broker;

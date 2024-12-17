@@ -3,36 +3,30 @@
 using namespace Scadup;
 extern const char* GET_VAL(G_ScaFlag x);
 
-int Subscriber::setup(const char* ip, unsigned short port)
+void Subscriber::setup(const char* ip, unsigned short port)
 {
-    m_socket = connect(ip, port, 60);
-    if (m_socket <= 0) {
-        LOGE("Connect fail: %d, %s!", m_socket, strerror(errno));
-        return -1;
-    }
-    Header head{};
-    ssize_t size = ::recv(m_socket, &head, sizeof(head), 0);
-    if (size > 0) {
-        if (head.size == sizeof(head) && head.flag == BROKER)
-            m_ssid = head.ssid;
-        else
-            LOGW("Error flag %s, size=%d", GET_VAL(head.flag), head.size);
-    } else {
-        LOGE("Recv fail(%ld), close %d: %s", size, m_socket, strerror(errno));
-        close(m_socket);
-        return -3;
-    }
-    return 0;
+    m_socket = socket2Broker(ip, port, m_ssid, 60);
+    std::thread task([&](SOCKET sock, bool& exit) -> void {
+        LOGI("start keepalive task");
+        keepalive(sock, exit);
+        }, m_socket, std::ref(m_exit));
+    if (task.joinable())
+        task.detach();
 }
 
 ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
 {
-    LOGI("subscribe topic %04x, ssid=%llu", topic, m_ssid);
+    LOGI("subscribe topic=0x%04x, ssid=%llu", topic, m_ssid);
     Header head{};
     head.flag = SUBSCRIBER;
     head.ssid = m_ssid;
     head.topic = topic;
-    ::send(m_socket, reinterpret_cast<char*>(&head), HEAD_SIZE, 0);
+    size_t len = ::send(m_socket, reinterpret_cast<char*>(&head), HEAD_SIZE, 0);
+    if (len == 0 || (len < 0 && errno == EPIPE)) {
+        close(m_socket);
+        LOGE("Write to sock %d, ssid %llu failed!", m_socket, m_ssid);
+        return -1;
+    }
     volatile bool flag = false;
     do {
         if (m_exit) {
@@ -43,11 +37,11 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
         Message msg = {};
         const size_t size = HEAD_SIZE + sizeof(Message::Payload::status);
         memset(static_cast<void*>(&msg), 0, size);
-        ssize_t len = ::recv(m_socket, reinterpret_cast<char*>(&msg), size, 0);
+        ssize_t len = ::recv(m_socket, reinterpret_cast<char*>(&msg), size, MSG_WAITALL);
         if (len == 0 || (len < 0 && errno != EAGAIN)) {
-            LOGE("Receive head fail[%ld], %s", len, strerror(errno));
+            LOGE("Receive msg fail[%ld], %s", len, strerror(errno));
             close(m_socket);
-            return -1;
+            return -2;
         }
         if (memcmp(reinterpret_cast<char*>(&msg), "Scadup", 7) == 0)
             continue;
@@ -61,7 +55,7 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
             if (len < 0) {
                 LOGE("Writes %s", strerror(errno));
                 close(m_socket);
-                return -2;
+                return -3;
             }
             LOGI("MQ writes %ld [%lld] %s.", len, msg.head.ssid, GET_VAL(msg.head.flag));
             continue;
@@ -71,14 +65,14 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
             char* body = new(std::nothrow) char[length];
             if (body == nullptr) {
                 LOGE("Extra body(%u, %lu) malloc failed!", msg.head.size, size);
-                return -3;
+                return -4;
             }
             len = ::recv(m_socket, body, length, 0);
             if (len < 0 || (len == 0 && errno != EINTR)) {
                 LOGE("Receive body fail, %s", strerror(errno));
                 close(m_socket);
                 Delete(body);
-                return -4;
+                return -5;
             } else {
                 msg.payload.status[0] = 'O';
                 msg.payload.status[1] = 'K';
@@ -93,7 +87,7 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
                     if (callback != nullptr) {
                         callback(*pMsg);
                     }
-                    LOGI("Message payload = [%s]-[%s]", pMsg->payload.status, pMsg->payload.content);
+                    LOGI("message payload = [%s]-[%s]", pMsg->payload.status, pMsg->payload.content);
                     Delete(pMsg);
                 }
             }
@@ -103,8 +97,28 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
     return 0;
 }
 
+void Subscriber::keepalive(SOCKET socket, bool& exit)
+{
+    while (!exit) {
+        Header head{};
+        head.cmd = 0x10;
+        head.ssid = m_ssid;
+        head.flag = SUBSCRIBER;
+        size_t len = ::send(socket, reinterpret_cast<char*>(&head), HEAD_SIZE, 0);
+        if (len == 0 || (len < 0 && errno == EPIPE)) {
+            close(socket);
+            LOGE("Write to sock[%d], cmd %zu failed!", socket, head.cmd);
+            break;
+        }
+        wait(Wait100ms * 3);
+    }
+}
+
 void Subscriber::exit()
 {
+    Header head{};
+    head.cmd = 0xff;
+    ::send(m_socket, &head, HEAD_SIZE, 0);
     m_exit = true;
     wait(Wait100ms);
     if (m_socket > 0) {
