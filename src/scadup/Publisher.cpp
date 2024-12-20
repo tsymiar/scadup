@@ -28,7 +28,7 @@ ssize_t Publisher::broadcast(const uint8_t* data, size_t len)
 
 int Publisher::publish(uint32_t topic, const std::string& payload, ...)
 {
-    LOGI("begin publish to BROKER, ssid=%llu, msg=\"%s\"", m_ssid, payload.c_str());
+    LOGI("begin publish to BROKER, ssid=0x%04x, msg=\"%s\"", m_ssid, payload.c_str());
     size_t size = payload.size();
     if (size == 0) {
         LOGW("Payload was empty!");
@@ -54,8 +54,8 @@ int Publisher::publish(uint32_t topic, const std::string& payload, ...)
 
     ssize_t bytes = broadcast(message, msgLen);
     LOGI("broadcast message size expect=%d, bytes=%d.", msgLen, bytes);
-    wait(1000);
+    wait(Time100ms);
     Delete(message);
 
-    return 0;
+    return bytes;
 }

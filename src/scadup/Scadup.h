@@ -28,7 +28,7 @@ extern "C" {
 }
 
 using SOCKET = int;
-const unsigned int Wait100ms = 100;
+const unsigned int Time100ms = 100;
 #define write(x,y,z) ::send(x,(char*)(y),z,MSG_NOSIGNAL)
 #define Delete(ptr) { if (ptr != nullptr) { delete[] ptr; ptr = nullptr; } }
 
@@ -51,7 +51,7 @@ namespace Scadup {
         G_ScaFlag flag;
         uint32_t size;
         uint32_t topic;
-        volatile uint64_t ssid; //ssid = (port | key | ip)
+        volatile uint64_t ssid; // ssid = (port | key | ip)
     } __attribute__((aligned(4)));
     struct Message {
         Header head{};
@@ -104,20 +104,20 @@ namespace Scadup {
     private:
         ssize_t broadcast(const uint8_t*, size_t);
     private:
-        SOCKET m_socket;
-        uint64_t m_ssid;
+        SOCKET m_socket = 0;
+        uint64_t m_ssid = 0;
     };
     class Subscriber {
     public:
         void setup(const char*, unsigned short = 9999);
         ssize_t subscribe(uint32_t, RECV_CALLBACK = nullptr);
-        void exit();
+        void close();
+        static void exit();
     private:
         void keepalive(SOCKET, bool&);
     private:
-        uint64_t m_ssid;
-        uint32_t m_topic;
+        static bool m_exit;
+        uint64_t m_ssid = 0;
         SOCKET m_socket = 0;
-        bool m_exit = false;
     };
 }

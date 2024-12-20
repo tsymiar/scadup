@@ -22,7 +22,11 @@ inline const char* basename(const char* name)
 #endif
 #ifdef __ANDROID__
 #include <android/log.h>
+#ifdef __cplusplus
 #define _LOG_(level, fmt, ...) __android_log_print(level, LOG_TAG,"(%s:%d)[%s]: " fmt, basename(const_cast<char*>(__FILE__)), __LINE__, __FUNCTION__, ##__VA_ARGS__)
+#else
+#define _LOG_(level, fmt, ...) __android_log_print(level, LOG_TAG,"(%s:%d)[%s]: " fmt, basename(__FILE__), __LINE__, __FUNCTION__, ##__VA_ARGS__)
+#endif
 #define LOGD(fmt, ...) _LOG_(ANDROID_LOG_DEBUG, fmt, ##__VA_ARGS__)
 #define LOGI(fmt, ...) _LOG_(ANDROID_LOG_INFO, fmt, ##__VA_ARGS__)
 #define LOGW(fmt, ...) _LOG_(ANDROID_LOG_WARN, fmt, ##__VA_ARGS__)

@@ -36,7 +36,11 @@ std::string FileUtils::GetFileStringContent(const std::string& filename)
         file.seekg(0, std::ios::end);
         content.resize(file.tellg());
         file.seekg(0, std::ios::beg);
-        file.read(&content[0], content.size());
+        size_t size = content.size();
+        if (size > 0x1000000) {
+            size = 0x1000000;
+        }
+        file.read(&content[0], size);
         file.close();
     }
     return content;

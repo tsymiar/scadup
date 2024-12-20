@@ -58,7 +58,7 @@ int Scadup::connect(const char* ip, unsigned short port, unsigned int total)
 {
     SOCKET socket = ::socket(AF_INET, SOCK_STREAM, 0);
     if (socket < 0) {
-        LOGE("Generating socket (%s).",
+        LOGE("Generating socket to connect(%s).",
             (errno != 0 ? strerror(errno) : std::to_string(socket).c_str()));
         return -1;
     }
@@ -72,7 +72,7 @@ int Scadup::connect(const char* ip, unsigned short port, unsigned int total)
     unsigned int tries = 0;
     while (::connect(socket, reinterpret_cast<struct sockaddr*>(&local), sizeof(local)) == (-1)) {
         if (tries < total) {
-            wait(Wait100ms * (long)pow(2, tries));
+            wait(Time100ms * (long)pow(2, tries));
             tries++;
         } else {
             LOGE("Retrying to connect (times=%d, %s).", tries, (errno != 0 ? strerror(errno) : "No error"));
@@ -117,7 +117,7 @@ int Broker::setup(unsigned short port)
 
     SOCKET socket = ::socket(AF_INET, SOCK_STREAM, 0);
     if (socket < 0) {
-        LOGE("Generating socket (%s).",
+        LOGE("Generating socket to setup(%s).",
             (errno != 0 ? strerror(errno) : std::to_string(socket).c_str()));
         return -1;
     }
@@ -214,7 +214,7 @@ void Broker::taskAllot(Networks& works, const Network& work)
                     break;
                 } else {
                 }
-                wait(Wait100ms);
+                wait(Time100ms);
             }
             }, work.socket);
         if (task.joinable())
@@ -322,7 +322,7 @@ void Broker::checkAlive(Networks& works, bool* active)
 {
     LOGI("start Network checking task at %p.", active);
     while (active != nullptr && (*active)) {
-        wait(Wait100ms * 3);
+        wait(Time100ms * 3);
         std::lock_guard<std::mutex> lock(m_lock);
         for (auto& work : works) {
             std::vector<Network>& vec = work.second;
@@ -340,7 +340,7 @@ void Broker::checkAlive(Networks& works, bool* active)
                 auto next = std::next(it);
                 works.erase(it);
                 it = next;
-                LOGI("works key(%s) is null deleted! remain=%d", GET_VAL(it->first), works.size());
+                LOGI("works key(%s) is null deleted! now size=%d", GET_VAL(it->first), works.size());
             } else {
                 ++it;
             }
@@ -369,7 +369,8 @@ int Broker::broker()
                     Network work = {};
                     getpeername(sockNew, reinterpret_cast<struct sockaddr*>(&peer), &socklen);
                     char addr[INET_ADDRSTRLEN];
-                    strncpy(work.IP, inet_ntop(AF_INET, &peer.sin_addr, addr, sizeof(addr)), INET_ADDRSTRLEN);
+                    const char* ip = inet_ntop(AF_INET, &peer.sin_addr, addr, INET_ADDRSTRLEN);
+                    strncpy(work.IP, ip, INET_ADDRSTRLEN);
                     work.PORT = ntohs(peer.sin_port);
                     time_t t{};
                     time(&t);
@@ -402,8 +403,8 @@ int Broker::broker()
                             m_networks[head.flag].emplace_back(work);
                         }
                         taskAllot(m_networks, work);
-                        LOGI("a new %s (%s:%d) %d set to Networks, topic=0x%04x, size=%d.",
-                            GET_VAL(head.flag), work.IP, work.PORT, work.socket, head.topic, head.size);
+                        LOGI("a new %s (%s:%d) %d set to Networks, topic=0x%04x, ssid=0x%04x, size=%d.",
+                            GET_VAL(head.flag), work.IP, work.PORT, work.socket, head.topic, ssid, head.size);
                     } else {
                         if (0 == size || errno == EINVAL || (size < 0 && errno != EAGAIN)) {
                             LOGE("Recv fail(%ld), ssid=%llu, close %d: %s", size, head.ssid, sockNew, strerror(errno));
