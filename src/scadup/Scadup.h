@@ -94,7 +94,7 @@ namespace Scadup {
     private:
         std::mutex m_lock = {};
         Networks m_networks{};
-        SOCKET m_socket = 0;
+        SOCKET m_socket = -1;
         bool m_active = false;
     };
     class Publisher {
@@ -104,7 +104,7 @@ namespace Scadup {
     private:
         ssize_t broadcast(const uint8_t*, size_t);
     private:
-        SOCKET m_socket = 0;
+        SOCKET m_socket = -1;
         uint64_t m_ssid = 0;
     };
     class Subscriber {
@@ -118,6 +118,6 @@ namespace Scadup {
     private:
         static bool m_exit;
         uint64_t m_ssid = 0;
-        SOCKET m_socket = 0;
+        SOCKET m_socket = -1;
     };
 }

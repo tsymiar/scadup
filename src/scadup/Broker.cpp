@@ -42,11 +42,14 @@ ssize_t Scadup::writes(SOCKET socket, const uint8_t* data, size_t len)
                     sent = 0; /* call write() again */
                 } else {
                     Delete(buff);
+                    LOGE("Write to socket failed with errno %d", errno);
                     return -2; /* error */
                 }
             }
-            if (sent > left)
+            if (sent == 0) { // handle unexpected zero or negative sent value
+                LOGE("Socket write returned 0, connection closed");
                 break;
+            }
         }
         left -= sent;
     }
@@ -66,7 +69,7 @@ int Scadup::connect(const char* ip, unsigned short port, unsigned int total)
     local.sin_family = AF_INET;
     local.sin_port = htons(port);
     local.sin_addr.s_addr = inet_addr(ip);
-    const char flag = 0;
+    int flag = 1;
     setsockopt(socket, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(char));
     LOGI("------ connecting to %s:%d ------", ip, port);
     unsigned int tries = 0;
@@ -98,7 +101,11 @@ SOCKET Scadup::socket2Broker(const char* ip, unsigned short port, uint64_t& ssid
         else
             LOGW("Error flag %s, size=%d", GET_VAL(head.flag), head.size);
     } else {
-        LOGE("Recv fail(%ld), close %d: %s", size, socket, strerror(errno));
+        if (size == 0) {
+            LOGE("Connection closed by peer, close %d", socket);
+        } else {
+            LOGE("Recv fail(%ld), close %d: %s", size, socket, strerror(errno));
+        }
         close(socket);
         return -3;
     }
@@ -115,10 +122,10 @@ int Broker::setup(unsigned short port)
 {
     signal(SIGPIPE, signalCatch);
 
-    SOCKET socket = ::socket(AF_INET, SOCK_STREAM, 0);
-    if (socket < 0) {
+    SOCKET sock = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) {
         LOGE("Generating socket to setup(%s).",
-            (errno != 0 ? strerror(errno) : std::to_string(socket).c_str()));
+            (errno != 0 ? strerror(errno) : std::to_string(sock).c_str()));
         return -1;
     }
 
@@ -126,23 +133,23 @@ int Broker::setup(unsigned short port)
     local.sin_family = AF_INET;
     local.sin_addr.s_addr = INADDR_ANY;
     local.sin_port = htons(port);
-    if (::bind(socket, reinterpret_cast<struct sockaddr*>(&local), sizeof(local)) < 0) {
+    if (::bind(sock, reinterpret_cast<struct sockaddr*>(&local), sizeof(local)) < 0) {
         LOGE("Binding socket (%s).",
-            (errno != 0 ? strerror(errno) : std::to_string(socket).c_str()));
-        close(socket);
+            (errno != 0 ? strerror(errno) : std::to_string(sock).c_str()));
+        close(sock);
         return -2;
     }
 
     const int backlog = 50;
-    if (listen(socket, backlog) < 0) {
+    if (listen(sock, backlog) < 0) {
         LOGE("listening socket (%s).",
-            (errno != 0 ? strerror(errno) : std::to_string(socket).c_str()));
-        close(socket);
+            (errno != 0 ? strerror(errno) : std::to_string(sock).c_str()));
+        close(sock);
         return -3;
     }
 
     queue_init(&g_msgQue);
-    m_socket = socket;
+    m_socket = sock;
     m_active = true;
 
     std::thread check([&](Broker* b)->void {
@@ -154,7 +161,7 @@ int Broker::setup(unsigned short port)
     }
 
     socklen_t size = static_cast<socklen_t>(sizeof(local));
-    getsockname(socket, reinterpret_cast<struct sockaddr*>(&local), &size);
+    getsockname(sock, reinterpret_cast<struct sockaddr*>(&local), &size);
     LOGI("listens localhost [%s:%d].", inet_ntoa(local.sin_addr), port);
 
     return 0;
@@ -213,6 +220,11 @@ void Broker::taskAllot(Networks& works, const Network& work)
                     LOGW("Socket %d lost/closing by itself!", socket);
                     break;
                 } else {
+                    if (len > 0) {
+                        // Received header from subscriber
+                    } else {
+                        LOGE("Error receiving data: %s", strerror(errno));
+                    }
                 }
                 wait(Time100ms);
             }
@@ -237,14 +249,24 @@ int Broker::ProxyTask(Networks& works, const Network& work)
     char* payload = (char*)msg;
     do {
         ssize_t got = ::recv(work.socket, reinterpret_cast<char*>(payload + len), size, 0);
-        if (got < 0 && errno != EAGAIN) {
-            break;
-        }
-        left -= got;
-        if (got == sz1) {
-            payload = msg->payload.content;
-            size = left;
-            len = 0;
+        if (got < 0) {
+            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                LOGE("Call recv failed: %s", strerror(errno));
+                delete[] msg->payload.content;
+                return -1;
+            }
+        } else if (got == 0) {
+            LOGW("Connection closed by peer");
+            delete[] msg->payload.content;
+            return -1;
+        } else {
+            left -= got;
+            len += got;
+            if (len == sz1) {
+                payload = msg->payload.content;
+                size = left;
+                len = 0;
+            }
         }
     } while (left > 0);
     msg->head = work.head;
@@ -354,9 +376,9 @@ int Broker::broker()
     FD_ZERO(&fdset);
     while (m_active) {
         FD_SET(m_socket, &fdset);
-        timeval timeout = { 0, 3000 };
+        timeval timeout = { 3, 0 };
         if (select((int)(m_socket + 1), &fdset, NULL, NULL, &timeout) > 0) {
-            if (FD_ISSET(m_socket, &fdset) > 0) {
+            if (FD_ISSET(m_socket, &fdset)) {
                 struct sockaddr_in peer { };
                 auto socklen = static_cast<socklen_t>(sizeof(peer));
                 SOCKET sockNew = ::accept(m_socket, reinterpret_cast<struct sockaddr*>(&peer), &socklen);
@@ -424,7 +446,7 @@ void Broker::exit()
     m_active = false;
     if (m_socket > 0) {
         close(m_socket);
-        m_socket = 0;
+        m_socket = -1;
     }
     queue_deinit(&g_msgQue);
 }

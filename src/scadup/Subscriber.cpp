@@ -8,8 +8,14 @@ void Subscriber::setup(const char* ip, unsigned short port)
 {
     m_socket = socket2Broker(ip, port, m_ssid, 60);
     std::thread task([&](SOCKET sock, bool& exit) -> void {
-        LOGI("start keepalive task");
-        keepalive(sock, exit);
+        try {
+            LOGI("start keepalive task");
+            keepalive(sock, exit);
+        } catch (const std::exception& e) {
+            LOGE("Exception in keepalive task: %s", e.what());
+        } catch (...) {
+            LOGE("Unknown exception in keepalive task");
+        }
         }, m_socket, std::ref(m_exit));
     if (task.joinable())
         task.detach();
