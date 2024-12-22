@@ -1,7 +1,7 @@
 #include "Scadup.h"
 
 using namespace Scadup;
-extern const char* GET_VAL(G_ScaFlag x);
+extern const char* GET_FLAG(G_ScaFlag x);
 bool Subscriber::m_exit = false;
 
 void Subscriber::setup(const char* ip, unsigned short port)
@@ -64,7 +64,7 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
                 ::close(m_socket);
                 return -3;
             }
-            LOGI("MQ writes %ld [%lld] %s.", len, msg.head.ssid, GET_VAL(msg.head.flag));
+            LOGI("MQ writes %ld [%lld] %s.", len, msg.head.ssid, GET_FLAG(msg.head.flag));
             continue;
         }
         if (msg.head.size > size) {
@@ -84,18 +84,19 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
                 msg.payload.status[0] = 'O';
                 msg.payload.status[1] = 'K';
                 msg.payload.status[2] = '\0';
-                auto* pMsg = reinterpret_cast<Message*>(new char[size + len]);
-                if (pMsg != nullptr) {
-                    memcpy(pMsg, &msg, sizeof(Message));
+                auto* message = reinterpret_cast<Message*>(new char[size + len]);
+                if (message != nullptr) {
+                    memcpy(message, &msg.head, HEAD_SIZE);
+                    memcpy(reinterpret_cast<char*>(message) + HEAD_SIZE, msg.payload.status, sizeof(Message::Payload::status));
                     if (len > 0) {
-                        pMsg->payload.content = body;
-                        pMsg->payload.content[len - 1] = '\0';
+                        message->payload.content = body;
+                        message->payload.content[len - 1] = '\0';
                     }
                     if (callback != nullptr) {
-                        callback(*pMsg);
+                        callback(*message);
                     }
-                    LOGI("message payload = [%s]-[%s]", pMsg->payload.status, pMsg->payload.content);
-                    Delete(pMsg);
+                    LOGI("message payload = [%s]-[%s]", message->payload.status, message->payload.content);
+                    Delete(message);
                 }
             }
             Delete(body);

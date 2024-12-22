@@ -5,7 +5,7 @@
 using namespace std;
 using namespace Scadup;
 
-extern const char* GET_VAL(Scadup::G_ScaFlag x);
+extern const char* GET_FLAG(Scadup::G_ScaFlag x);
 
 static void usage()
 {
@@ -39,7 +39,7 @@ int main(int argc, char* argv[])
         IP = "127.0.0.1";
         cout << "IP is null when parse 'scadup.cfg', default: " << IP << endl;
     }
-    cout << argv[0] << ": start [" << flag << "](" << GET_VAL(flag) << ")" << endl;
+    cout << argv[0] << ": " << GET_FLAG(flag) << " test start." << endl;
     uint32_t topic = 0x1234;
     if (argc > 2) {
         topic = strtol(argv[2], NULL, 16);

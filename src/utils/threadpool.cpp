@@ -4,9 +4,9 @@ threadpool::threadpool() : m_stopPool(false) { }
 
 threadpool::~threadpool() { }
 
-void threadpool::start(size_t threadsnum)
+void threadpool::start(size_t threads)
 {
-    for (size_t i = 0; i < threadsnum; ++i) {
+    for (size_t i = 0; i < threads; ++i) {
         m_workers.emplace_back([this] {
             for (;;) {
                 std::function<void()> task;
@@ -33,6 +33,28 @@ void threadpool::enqueue(F&& f)
         m_tasks.emplace(std::forward<F>(f));
     }
     m_condition.notify_one();
+}
+
+template<class F, class... Args>
+auto threadpool::enqueue(F&& f, Args&&... args)
+-> std::future<typename std::result_of<F(Args...)>::type>
+{
+    using return_type = typename std::result_of<F(Args...)>::type;
+    auto task = std::make_shared< std::packaged_task<return_type()> >(
+        std::bind(std::forward<F>(f), std::forward<Args>(args)...)
+    );
+    std::future<return_type> fres = task->get_future();
+    {
+        std::unique_lock<std::mutex> lock(m_queueMutex);
+
+        // don't allow enqueueing after stopping the pool
+        if (m_stopPool)
+            throw std::runtime_error("enqueue on stopped ThreadPool");
+
+        m_tasks.emplace([task]() { (*task)(); });
+    }
+    m_condition.notify_one();
+    return fres;
 }
 
 void threadpool::stop()
