@@ -1,5 +1,8 @@
 #include "Scadup.h"
 
+#define LOG_TAG "Publisher"
+#include "../utils/logging.h"
+
 using namespace Scadup;
 
 void Publisher::setup(const char* ip, unsigned short port)
@@ -22,7 +25,7 @@ ssize_t Publisher::broadcast(const uint8_t* data, size_t len)
         LOGE("Writes %d: %s", bytes, strerror(errno));
         return -3;
     }
-    close(m_socket);
+    Close(m_socket);
     return bytes;
 }
 

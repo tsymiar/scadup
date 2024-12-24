@@ -1,36 +1,57 @@
 #pragma once
-#include <cstring>
-#include <string>
-#include <vector>
-#include <deque>
-#include <memory>
-#include <mutex>
-#include <map>
-#include <vector>
-#include <functional>
 #include <algorithm>
-#include <iostream>
-#include <cstdlib>
 #include <chrono>
-#include <thread>
 #include <cmath>
 #include <csignal>
-#include <fstream>
-#include <netinet/in.h>
-#include <arpa/inet.h>
+#include <cstdlib>
+#include <cstring>
+#include <deque>
 #include <fcntl.h>
+#include <fstream>
+#include <functional>
+#include <iostream>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
+#ifdef _WIN32
+#define _WIN32_WINNT 0x0600
+#include <Ws2tcpip.h>
+#include <Windows.h>
+#else
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <unistd.h>
-
-#define LOG_TAG "Scadup"
-#include "../utils/logging.h"
+#endif
 extern "C" {
 #include "../utils/msg_que.h"
 }
 
+#ifdef _WIN32
+#define  __attribute__(x)
+#define MSG_NOSIGNAL 0
+#define signal(_1,_2) {}
+inline void Close(SOCKET x)
+{
+#ifdef _MSC_VER
+    ::closesocket(x);
+#else
+    ::close(x);
+#endif
+    WSACleanup();
+}
+#ifdef _MSC_VER
+typedef int ssize_t;
+#endif
+#else
 using SOCKET = int;
+#define Close ::close
+#endif
 const unsigned int Time100ms = 100;
 #define write(x,y,z) ::send(x,(char*)(y),z,MSG_NOSIGNAL)
-#define Delete(ptr) { if (ptr != nullptr) { delete[] ptr; ptr = nullptr; } }
+#define Delete(s) { if (s != nullptr) { delete[] s; s = nullptr; } }
 
 inline void wait(unsigned int tms)
 {
@@ -75,9 +96,10 @@ namespace Scadup {
     const size_t HEAD_SIZE = sizeof(Header);
     typedef void(*RECV_CALLBACK)(const Message&);
     typedef std::map<G_ScaFlag, std::vector<Network>> Networks;
-    extern ssize_t writes(SOCKET socket, const uint8_t* data, size_t len);
-    extern int connect(const char* ip, unsigned short port, unsigned int total);
+    extern bool makeSocket(SOCKET& socket);
     extern SOCKET socket2Broker(const char* ip, unsigned short port, uint64_t& ssid, uint32_t timeout);
+    extern int connect(const char* ip, unsigned short port, unsigned int total);
+    extern ssize_t writes(SOCKET socket, const uint8_t* data, size_t len);
     class Broker {
     public:
         static Broker& instance();
@@ -111,10 +133,10 @@ namespace Scadup {
     public:
         void setup(const char*, unsigned short = 9999);
         ssize_t subscribe(uint32_t, RECV_CALLBACK = nullptr);
-        void close();
+        void quit();
         static void exit();
     private:
-        void keepalive(SOCKET, bool&);
+        void keepAlive(SOCKET, bool&);
     private:
         static bool m_exit;
         uint64_t m_ssid = 0;

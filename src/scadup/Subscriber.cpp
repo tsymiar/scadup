@@ -1,7 +1,11 @@
 #include "Scadup.h"
 
+#define LOG_TAG "Subscriber"
+#include "../utils/logging.h"
+
 using namespace Scadup;
 extern const char* GET_FLAG(G_ScaFlag x);
+
 bool Subscriber::m_exit = false;
 
 void Subscriber::setup(const char* ip, unsigned short port)
@@ -9,12 +13,12 @@ void Subscriber::setup(const char* ip, unsigned short port)
     m_socket = socket2Broker(ip, port, m_ssid, 60);
     std::thread task([&](SOCKET sock, bool& exit) -> void {
         try {
-            LOGI("start keepalive task");
-            keepalive(sock, exit);
+            LOGI("start keep-alive task");
+            keepAlive(sock, exit);
         } catch (const std::exception& e) {
-            LOGE("Exception in keepalive task: %s", e.what());
+            LOGE("Exception in keep-alive task: %s", e.what());
         } catch (...) {
-            LOGE("Unknown exception in keepalive task");
+            LOGE("Unknown exception in keep-alive task");
         }
         }, m_socket, std::ref(m_exit));
     if (task.joinable())
@@ -28,9 +32,9 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
     head.flag = SUBSCRIBER;
     head.ssid = m_ssid;
     head.topic = topic;
-    size_t len = ::send(m_socket, reinterpret_cast<char*>(&head), HEAD_SIZE, 0);
+    ssize_t len = ::send(m_socket, reinterpret_cast<char*>(&head), HEAD_SIZE, 0);
     if (len == 0 || (len < 0 && errno == EPIPE)) {
-        ::close(m_socket);
+        Close(m_socket);
         LOGE("Write to sock %d, ssid %llu failed!", m_socket, m_ssid);
         return -1;
     }
@@ -44,10 +48,10 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
         Message msg = {};
         const size_t size = HEAD_SIZE + sizeof(Message::Payload::status);
         memset(static_cast<void*>(&msg), 0, size);
-        ssize_t len = ::recv(m_socket, reinterpret_cast<char*>(&msg), size, MSG_WAITALL);
+        len = ::recv(m_socket, reinterpret_cast<char*>(&msg), size, MSG_WAITALL);
         if (len == 0 || (len < 0 && errno != EAGAIN)) {
             LOGE("Receive msg fail[%ld], %s", len, strerror(errno));
-            ::close(m_socket);
+            Close(m_socket);
             return -2;
         }
         if (memcmp(reinterpret_cast<char*>(&msg), "Scadup", 7) == 0)
@@ -61,7 +65,7 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
             len = writes(m_socket, reinterpret_cast<uint8_t*>(&msg), size);
             if (len < 0) {
                 LOGE("Writes %s", strerror(errno));
-                ::close(m_socket);
+                Close(m_socket);
                 return -3;
             }
             LOGI("MQ writes %ld [%lld] %s.", len, msg.head.ssid, GET_FLAG(msg.head.flag));
@@ -77,7 +81,7 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
             len = ::recv(m_socket, body, length, 0);
             if (len < 0 || (len == 0 && errno != EINTR)) {
                 LOGE("Receive body fail, %s", strerror(errno));
-                ::close(m_socket);
+                Close(m_socket);
                 Delete(body);
                 return -5;
             } else {
@@ -105,7 +109,7 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
     return 0;
 }
 
-void Subscriber::keepalive(SOCKET socket, bool& exit)
+void Subscriber::keepAlive(SOCKET socket, bool& exit)
 {
     while (!exit) {
         Header head{};
@@ -114,7 +118,7 @@ void Subscriber::keepalive(SOCKET socket, bool& exit)
         head.flag = SUBSCRIBER;
         size_t len = ::send(socket, reinterpret_cast<char*>(&head), HEAD_SIZE, 0);
         if (len == 0 || (len < 0 && errno == EPIPE)) {
-            ::close(socket);
+            Close(socket);
             LOGE("Write to sock[%d], cmd %zu failed!", socket, head.cmd);
             break;
         }
@@ -122,14 +126,14 @@ void Subscriber::keepalive(SOCKET socket, bool& exit)
     }
 }
 
-void Subscriber::close()
+void Subscriber::quit()
 {
     Header head{};
     head.cmd = 0xff;
-    ::send(m_socket, &head, HEAD_SIZE, 0);
+    ::send(m_socket, reinterpret_cast<char*>(&head), HEAD_SIZE, 0);
     wait(Time100ms);
     if (m_socket > 0) {
-        ::close(m_socket);
+        Close(m_socket);
         m_socket = 0;
     }
 }
