@@ -1,5 +1,8 @@
 #include "Scadup.h"
 
+#define LOG_TAG "Publisher"
+#include "../utils/logging.h"
+
 using namespace Scadup;
 
 void Publisher::setup(const char* ip, unsigned short port)

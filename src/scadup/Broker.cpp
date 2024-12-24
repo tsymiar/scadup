@@ -1,5 +1,8 @@
 #include "Scadup.h"
 
+#define LOG_TAG "Broker"
+#include "../utils/logging.h"
+
 #define XMK(x) #x
 #define GET(x) XMK(x)
 
@@ -14,6 +17,30 @@ void signalCatch(int value)
     if (value == SIGSEGV)
         return;
     LOGI("caught signal: %d", value);
+}
+
+bool Scadup::makeSocket(SOCKET& socket)
+{
+#ifdef _WIN32
+    WSADATA wsaData;
+    WORD version = MAKEWORD(2, 2);
+    int wsResult = WSAStartup(version, &wsaData);
+    if (wsResult != 0) {
+        LOGE("WSAStartup fail: %s!", strerror(errno));
+        return false;
+    }
+#endif
+    bool status = true;
+    socket = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (socket <= 0) {
+        LOGE("Generating socket fail(%s).",
+            (errno != 0 ? strerror(errno) : std::to_string(socket).c_str()));
+#ifdef _WIN32
+        WSACleanup();
+#endif
+        status = false;
+    }
+    return status;
 }
 
 ssize_t Scadup::writes(SOCKET socket, const uint8_t* data, size_t len)
@@ -57,31 +84,30 @@ ssize_t Scadup::writes(SOCKET socket, const uint8_t* data, size_t len)
 
 int Scadup::connect(const char* ip, unsigned short port, unsigned int total)
 {
-    SOCKET socket = ::socket(AF_INET, SOCK_STREAM, 0);
-    if (socket < 0) {
-        LOGE("Generating socket to connect(%s).",
-            (errno != 0 ? strerror(errno) : std::to_string(socket).c_str()));
+    SOCKET sock = -1;
+    if (!makeSocket(sock)) {
+        LOGE("Connect to make socket fail!");
         return -1;
     }
     sockaddr_in local{};
     local.sin_family = AF_INET;
     local.sin_port = htons(port);
     local.sin_addr.s_addr = inet_addr(ip);
-    int flag = 1;
-    setsockopt(socket, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(char));
+    char flag = 1;
+    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(char));
     LOGI("------ connecting to %s:%d ------", ip, port);
     unsigned int tries = 0;
-    while (::connect(socket, reinterpret_cast<struct sockaddr*>(&local), sizeof(local)) == (-1)) {
+    while (::connect(sock, reinterpret_cast<struct sockaddr*>(&local), sizeof(local)) == (-1)) {
         if (tries < total) {
             wait(Time100ms * (long)pow(2, tries));
             tries++;
         } else {
             LOGE("Retrying to connect (times=%d, %s).", tries, (errno != 0 ? strerror(errno) : "No error"));
-            close(socket);
+            close(sock);
             return -2;
         }
     }
-    return socket;
+    return sock;
 }
 
 SOCKET Scadup::socket2Broker(const char* ip, unsigned short port, uint64_t& ssid, uint32_t timeout)
@@ -92,7 +118,7 @@ SOCKET Scadup::socket2Broker(const char* ip, unsigned short port, uint64_t& ssid
         return -1;
     }
     Header head{};
-    ssize_t size = ::recv(socket, &head, sizeof(head), 0);
+    ssize_t size = ::recv(socket, reinterpret_cast<char*>(&head), sizeof(head), 0);
     if (size > 0) {
         if (head.size == sizeof(head) && head.flag == BROKER)
             ssid = head.ssid;
@@ -120,10 +146,9 @@ int Broker::setup(unsigned short port)
 {
     signal(SIGPIPE, signalCatch);
 
-    SOCKET sock = ::socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0) {
-        LOGE("Generating socket to setup(%s).",
-            (errno != 0 ? strerror(errno) : std::to_string(sock).c_str()));
+    SOCKET sock = -1;
+    if (!makeSocket(sock)) {
+        LOGE("Setup to make socket fail!");
         return -1;
     }
 
@@ -193,7 +218,7 @@ void Broker::taskAllot(Networks& works, const Network& work)
 {
     if (work.head.flag == PUBLISHER) {
         Header head{};
-        ssize_t len = recv(work.socket, &head, sizeof(head), MSG_WAITALL);
+        ssize_t len = recv(work.socket, reinterpret_cast<char*>(&head), sizeof(head), MSG_WAITALL);
         if (len == 0 || (len < 0 && errno == EPIPE)) {
             setOffline(works, work.socket);
             LOGW("Socket lost/closing by itself!");
@@ -212,7 +237,7 @@ void Broker::taskAllot(Networks& works, const Network& work)
             LOGI("start heart beat task");
             while (m_active) {
                 Header head{};
-                ssize_t len = ::recv(socket, &head, HEAD_SIZE, 0);
+                ssize_t len = ::recv(socket, reinterpret_cast<char*>(&head), HEAD_SIZE, 0);
                 if (len == 0 || (len < 0 && errno == EPIPE) || (len > 0 && head.cmd == 0xff)) {
                     setOffline(works, socket);
                     LOGW("Socket %d lost/closing by itself!", socket);
@@ -250,7 +275,7 @@ int Broker::ProxyTask(Networks& works, const Network& work)
         ssize_t got = ::recv(work.socket, reinterpret_cast<char*>(payload + len), size, 0);
         if (got < 0) {
             if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                LOGE("Call recv failed: %s", strerror(errno));
+                LOGE("Call recv(%d) failed: %s", got, strerror(errno));
                 delete[] msg->payload.content;
                 return -1;
             }
@@ -411,7 +436,7 @@ int Broker::broker()
                         continue;
                     }
                     memset(&head, 0, sizeof(head));
-                    ssize_t size = recv(sockNew, &head, sizeof(head), MSG_PEEK);
+                    ssize_t size = recv(sockNew, reinterpret_cast<char*>(&head), sizeof(head), MSG_PEEK);
                     if (size > 0 && ssid == head.ssid) {
                         work.socket = sockNew;
                         work.head = head;

@@ -16,18 +16,27 @@
 #include <cmath>
 #include <csignal>
 #include <fstream>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 #include <fcntl.h>
 #include <unistd.h>
-
-#define LOG_TAG "Scadup"
-#include "../utils/logging.h"
+#ifdef _WIN32
+#define _WIN32_WINNT 0x0600
+#include <Ws2tcpip.h>
+#include <Windows.h>
+#define close(x) { ::close(x); WSACleanup(); }
+#else
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#endif
 extern "C" {
 #include "../utils/msg_que.h"
 }
 
+#ifdef _WIN32
+#define MSG_NOSIGNAL 0
+#define signal(_1,_2) {}
+#else
 using SOCKET = int;
+#endif
 const unsigned int Time100ms = 100;
 #define write(x,y,z) ::send(x,(char*)(y),z,MSG_NOSIGNAL)
 #define Delete(ptr) { if (ptr != nullptr) { delete[] ptr; ptr = nullptr; } }
@@ -75,9 +84,10 @@ namespace Scadup {
     const size_t HEAD_SIZE = sizeof(Header);
     typedef void(*RECV_CALLBACK)(const Message&);
     typedef std::map<G_ScaFlag, std::vector<Network>> Networks;
-    extern ssize_t writes(SOCKET socket, const uint8_t* data, size_t len);
-    extern int connect(const char* ip, unsigned short port, unsigned int total);
+    extern bool makeSocket(SOCKET& socket);
     extern SOCKET socket2Broker(const char* ip, unsigned short port, uint64_t& ssid, uint32_t timeout);
+    extern int connect(const char* ip, unsigned short port, unsigned int total);
+    extern ssize_t writes(SOCKET socket, const uint8_t* data, size_t len);
     class Broker {
     public:
         static Broker& instance();
@@ -111,7 +121,7 @@ namespace Scadup {
     public:
         void setup(const char*, unsigned short = 9999);
         ssize_t subscribe(uint32_t, RECV_CALLBACK = nullptr);
-        void close();
+        void quit();
         static void exit();
     private:
         void keepalive(SOCKET, bool&);

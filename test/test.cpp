@@ -37,7 +37,7 @@ int main(int argc, char* argv[])
     }
     if (IP.empty()) {
         IP = "127.0.0.1";
-        cout << "IP is null when parse 'scadup.cfg', default: " << IP << endl;
+        cout << "IP is null when parse 'scadup.cfg', set default IP: " << IP << endl;
     }
     cout << argv[0] << ": " << GET_FLAG(flag) << " test start." << endl;
     uint32_t topic = 0x1234;
