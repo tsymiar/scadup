@@ -18,7 +18,7 @@ file(GLOB TEST_FILE "*test*.*")
 
 set(SCADUP_SRC ${CMAKE_SOURCE_DIR}/src)
 include_directories(${SCADUP_SRC})
-add_subdirectory(${SCADUP_SRC}/scadup build)
+add_subdirectory(${SCADUP_SRC} build)
 find_library(SCADUP_LIB NAMES scadup PATHS build ${CMAKE_SOURCE_DIR}/lib NOTFOUND)
 
 macro(GET_SUB_SRC_FILES subfiles parent)

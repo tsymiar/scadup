@@ -100,46 +100,4 @@ namespace Scadup {
     extern SOCKET socket2Broker(const char* ip, unsigned short port, uint64_t& ssid, uint32_t timeout);
     extern int connect(const char* ip, unsigned short port, unsigned int total);
     extern ssize_t writes(SOCKET socket, const uint8_t* data, size_t len);
-    class Broker {
-    public:
-        static Broker& instance();
-        int setup(unsigned short = 9999);
-        int broker();
-        void exit();
-    private:
-        int ProxyTask(Networks&, const Network&);
-        void checkAlive(Networks&, bool*);
-        void setOffline(Networks&, SOCKET);
-        uint64_t setSession(const std::string&, unsigned short, SOCKET = 0);
-        bool checkSsid(SOCKET, uint64_t);
-        void taskAllot(Networks&, const Network&);
-    private:
-        std::mutex m_lock = {};
-        Networks m_networks{};
-        SOCKET m_socket = -1;
-        bool m_active = false;
-    };
-    class Publisher {
-    public:
-        void setup(const char*, unsigned short = 9999);
-        int publish(uint32_t, const std::string&, ...);
-    private:
-        ssize_t broadcast(const uint8_t*, size_t);
-    private:
-        SOCKET m_socket = -1;
-        uint64_t m_ssid = 0;
-    };
-    class Subscriber {
-    public:
-        void setup(const char*, unsigned short = 9999);
-        ssize_t subscribe(uint32_t, RECV_CALLBACK = nullptr);
-        void quit();
-        static void exit();
-    private:
-        void keepAlive(SOCKET, bool&);
-    private:
-        static bool m_exit;
-        uint64_t m_ssid = 0;
-        SOCKET m_socket = -1;
-    };
 }
