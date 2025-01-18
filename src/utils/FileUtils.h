@@ -28,4 +28,4 @@ private:
     FileUtils& operator=(const FileUtils&);
 };
 
-#endif //DEVIDROID_FILEUTILS_H
+#endif //DEVICE2DEVICE_FILEUTILS_H

@@ -23,7 +23,7 @@ endif()
 if("${ANDROID}" EQUAL "1")
     set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/../../../../jniLibs/${ANDROID_ABI})
 else()
-    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/../../lib)
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/../target/lib)
     add_definitions(-DFULLY_COMPILE)
     include_directories(..)
 endif()
@@ -49,3 +49,10 @@ else()
 endif()
 
 target_link_libraries(${TARGET} ${EXTERN})
+add_custom_command(TARGET ${PROJECT_NAME}
+    POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E
+    copy_if_different
+    "${PROJECT_SOURCE_DIR}/common/Scadup.h"
+    "${PROJECT_SOURCE_DIR}/../target/include/${TARGET}.h"
+)

@@ -1,4 +1,8 @@
-#include "Broker.h"
+#include "common/Scadup.h"
+
+extern "C" {
+#include "../utils/msg_que.h"
+}
 
 #define LOG_TAG "Broker"
 #include "../utils/logging.h"
@@ -61,7 +65,7 @@ ssize_t Scadup::writes(SOCKET socket, const uint8_t* data, size_t len)
     memcpy(buff, data, left);
     ssize_t sent = 0;
     while (left > 0 && (size_t)sent < len) {
-        if ((sent = write(socket, reinterpret_cast<char*>(buff + sent), left)) <= 0) {
+        if ((sent = Write(socket, reinterpret_cast<char*>(buff + sent), left)) <= 0) {
             if (sent < 0) {
                 if (errno == EINTR) {
                     sent = 0; /* call write() again */

@@ -56,6 +56,7 @@ lib
 build
 Debug
 jniLibs
+target*
 *.exe
 *.so
 out
