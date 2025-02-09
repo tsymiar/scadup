@@ -18,8 +18,10 @@ const char* GET_FLAG(G_ScaFlag x) { return (x >= NONE && x < MAX_VAL) ? G_FlagVa
 
 void signalCatch(int value)
 {
-    if (value == SIGSEGV)
-        return;
+    if (value == SIGSEGV) {
+        LOGE("Segmentation fault caught!");
+        exit(EXIT_FAILURE); // exit
+    }
     LOGI("caught signal: %d", value);
 }
 
@@ -53,7 +55,7 @@ ssize_t Scadup::writes(SOCKET socket, const uint8_t* data, size_t len)
         return 0;
     if (errno == EPIPE)
         return -1;
-    std::mutex mtxLck = {};
+    static std::mutex mtxLck; // static lock
     std::lock_guard<std::mutex> lock(mtxLck);
     auto left = (ssize_t)len;
     auto* buff = new(std::nothrow) uint8_t[left];
@@ -269,8 +271,13 @@ int Broker::ProxyTask(Networks& works, const Network& work)
     const size_t sz1 = sizeof(Message::Payload::status);
     size_t left = work.head.size - HEAD_SIZE;
     static Message mval{};
-    auto* msg = new(mval) Message;
-    msg->payload.content = new char[left - sz1];
+    auto* msg = new(mval) Message; // placement new
+    msg->payload.content = new(std::nothrow) char[left - sz1];
+    if (msg->payload.content == nullptr) {
+        LOGE("Payload content allocation failed!");
+        delete msg;
+        return -1;
+    }
     memset(msg->payload.content, 0, left - sz1);
     size_t len = 0;
     size_t size = sz1;
@@ -378,8 +385,8 @@ void Broker::checkAlive(Networks& works, bool* active)
             std::vector<Network>& vec = work.second;
             for (auto it = vec.begin(); it != vec.end(); ) {
                 if (!it->active) {
-                    it = vec.erase(it);
                     LOGI("delete offline client %s:%u", it->IP, it->PORT);
+                    it = vec.erase(it);
                 } else {
                     ++it;
                 }
@@ -387,10 +394,8 @@ void Broker::checkAlive(Networks& works, bool* active)
         }
         for (auto it = works.begin(); it != works.end(); ) {
             if (it->second.empty()) {
-                auto next = std::next(it);
-                works.erase(it);
-                it = next;
                 LOGI("works key(%s) is null deleted! now size=%d", GET_FLAG(it->first), works.size());
+                it = works.erase(it);
             } else {
                 ++it;
             }
