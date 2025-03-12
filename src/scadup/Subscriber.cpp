@@ -2,16 +2,19 @@
 
 #define LOG_TAG "Subscriber"
 #include "../utils/logging.h"
+#include "../utils/threadpool.hpp"
+#include "../utils/TaskBase.h"
 
 using namespace Scadup;
 extern const char* GET_FLAG(G_ScaFlag x);
 
 bool Subscriber::m_exit = false;
+threadpool g_threadpool{};
 
 void Subscriber::setup(const char* ip, unsigned short port)
 {
     m_socket = socket2Broker(ip, port, m_ssid, 60);
-    std::thread task([&](SOCKET sock, bool& exit) -> void {
+    std::function<void(SOCKET, bool&)> func = [&](SOCKET sock, bool& exit) -> void {
         try {
             LOGI("start keep-alive task");
             keepAlive(sock, exit);
@@ -20,9 +23,9 @@ void Subscriber::setup(const char* ip, unsigned short port)
         } catch (...) {
             LOGE("Unknown exception in keep-alive task");
         }
-        }, m_socket, std::ref(m_exit));
-    if (task.joinable())
-        task.detach();
+        };
+    g_threadpool.enqueue(func, m_socket, std::ref(m_exit));
+    g_threadpool.start(3);
 }
 
 ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
@@ -85,9 +88,6 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
                 Delete(body);
                 return -5;
             } else {
-                msg.payload.status[0] = 'O';
-                msg.payload.status[1] = 'K';
-                msg.payload.status[2] = '\0';
                 auto* message = reinterpret_cast<Message*>(new char[size + len]);
                 if (message != nullptr) {
                     memcpy(message, &msg.head, HEAD_SIZE);
@@ -97,7 +97,8 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
                         message->payload.content[len - 1] = '\0';
                     }
                     if (callback != nullptr) {
-                        callback(*message);
+                        // std::function<RECV_CALLBACK> func = callback;
+                        g_threadpool.enqueue(callback, *message);
                     }
                     LOGI("message payload = [%s]-[%s]", message->payload.status, message->payload.content);
                     Delete(message);
@@ -128,6 +129,7 @@ void Subscriber::keepAlive(SOCKET socket, bool& exit)
 
 void Subscriber::quit()
 {
+    g_threadpool.stop();
     Header head{};
     head.cmd = 0xff;
     ::send(m_socket, reinterpret_cast<char*>(&head), HEAD_SIZE, 0);

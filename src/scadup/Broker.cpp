@@ -177,7 +177,7 @@ int Broker::setup(unsigned short port)
         return -3;
     }
 
-    queue_init(&g_msgQue);
+    mq_init(&g_msgQue);
     m_socket = sock;
     m_active = true;
 
@@ -305,13 +305,13 @@ int Broker::ProxyTask(Networks& works, const Network& work)
         }
     } while (left > 0);
     msg->head = work.head;
-    queue_push(&g_msgQue, msg);
+    mq_push(&g_msgQue, msg);
     setOffline(works, work.socket);
     std::vector<Network>& vec = works[SUBSCRIBER];// only SUBSCRIBER should be sent
     if (vec.empty()) {
         LOGW("No subscriber to publish!");
     }
-    void* message = queue_front(&g_msgQue);
+    void* message = mq_front(&g_msgQue);
     if (message != nullptr) {
         Message val = *reinterpret_cast<Message*>(message);
         if (val.head.flag != PUBLISHER) {
@@ -346,7 +346,7 @@ int Broker::ProxyTask(Networks& works, const Network& work)
                 }
             }
             Delete(val.payload.content)
-                queue_pop(&g_msgQue);
+                mq_pop(&g_msgQue);
         } else {
             LOGW("Message size(%u) invalid!", val.head.size);
         }
@@ -481,5 +481,5 @@ void Broker::exit()
         Close(m_socket);
         m_socket = -1;
     }
-    queue_deinit(&g_msgQue);
+    mq_deinit(&g_msgQue);
 }

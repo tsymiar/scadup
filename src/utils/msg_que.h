@@ -11,11 +11,11 @@ typedef struct MsgQue {
     INode* tail;
 } MsgQue;
 
-void queue_init(struct MsgQue* q);
-int queue_push(struct MsgQue* q, void* x);
-void* queue_front(struct MsgQue* q);
-void queue_pop(struct MsgQue* q);
-int queue_size(struct MsgQue* q);
-void queue_deinit(struct MsgQue* q);
+void mq_init(struct MsgQue* q);
+int mq_push(struct MsgQue* q, void* x);
+void* mq_front(struct MsgQue* q);
+void mq_pop(struct MsgQue* q);
+int mq_size(struct MsgQue* q);
+void mq_deinit(struct MsgQue* q);
 
 #endif

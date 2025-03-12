@@ -52,6 +52,9 @@ int Publisher::publish(uint32_t topic, const std::string& payload, ...)
     msg.head.size = static_cast<unsigned int>(msgLen);
     msg.head.topic = topic;
     msg.head.flag = PUBLISHER;
+    msg.payload.status[0] = 'O';
+    msg.payload.status[1] = 'K';
+    msg.payload.status[2] = '\0';
     memcpy(message, &msg, sizeof(Message));
     memcpy(message + HEAD_SIZE + sizeof(Message::Payload::status), payload.c_str(), size);
 

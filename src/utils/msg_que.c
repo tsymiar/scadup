@@ -13,13 +13,13 @@
 
 static pthread_mutex_t g_mutex;
 
-void queue_init(struct MsgQue* q)
+void mq_init(struct MsgQue* q)
 {
     pthread_mutex_init(&g_mutex, NULL);
     q->head = q->tail = NULL;
 }
 
-void queue_deinit(struct MsgQue* q)
+void mq_deinit(struct MsgQue* q)
 {
     if (q == NULL)
         return;
@@ -33,7 +33,7 @@ void queue_deinit(struct MsgQue* q)
     pthread_mutex_destroy(&g_mutex);
 }
 
-int queue_push(struct MsgQue* q, void* x)
+int mq_push(struct MsgQue* q, void* x)
 {
     pthread_mutex_lock(&g_mutex);
     if (q == NULL) {
@@ -58,7 +58,7 @@ int queue_push(struct MsgQue* q, void* x)
     return 0;
 }
 
-void queue_pop(struct MsgQue* q)
+void mq_pop(struct MsgQue* q)
 {
     pthread_mutex_lock(&g_mutex);
     if (q != NULL && q->head != NULL) {
@@ -74,7 +74,7 @@ void queue_pop(struct MsgQue* q)
     pthread_mutex_unlock(&g_mutex);
 }
 
-void* queue_front(struct MsgQue* q)
+void* mq_front(struct MsgQue* q)
 {
     pthread_mutex_lock(&g_mutex);
     if (q == NULL || q->head == NULL) {
@@ -86,7 +86,7 @@ void* queue_front(struct MsgQue* q)
     return p;
 }
 
-int queue_size(struct MsgQue* q)
+int mq_size(struct MsgQue* q)
 {
     pthread_mutex_lock(&g_mutex);
     if (q != NULL) {
