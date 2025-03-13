@@ -25,7 +25,6 @@ void Subscriber::setup(const char* ip, unsigned short port)
         }
         };
     g_threadpool.enqueue(func, m_socket, std::ref(m_exit));
-    g_threadpool.start(3);
 }
 
 ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
@@ -40,6 +39,8 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
         Close(m_socket);
         LOGE("Write to sock %d, ssid %llu failed!", m_socket, m_ssid);
         return -1;
+    } else {
+        g_threadpool.start(3);
     }
     volatile bool flag = false;
     do {
@@ -117,7 +118,7 @@ void Subscriber::keepAlive(SOCKET socket, bool& exit)
         head.cmd = 0x10;
         head.ssid = m_ssid;
         head.flag = SUBSCRIBER;
-        size_t len = ::send(socket, reinterpret_cast<char*>(&head), HEAD_SIZE, 0);
+        ssize_t len = ::send(socket, reinterpret_cast<char*>(&head), HEAD_SIZE, 0);
         if (len == 0 || (len < 0 && errno == EPIPE)) {
             Close(socket);
             LOGE("Write to sock[%d], cmd %zu failed!", socket, head.cmd);

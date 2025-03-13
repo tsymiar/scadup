@@ -439,7 +439,7 @@ int Broker::broker()
                     head.flag = BROKER;
                     head.size = sizeof(head);
                     head.ssid = ssid;
-                    size_t len = ::send(sockNew, reinterpret_cast<char*>(&head), HEAD_SIZE, 0);
+                    ssize_t len = ::send(sockNew, reinterpret_cast<char*>(&head), HEAD_SIZE, 0);
                     if (len == 0 || (len < 0 && errno == EPIPE)) {
                         LOGE("Write to sock %d ssid %llu failed!", sockNew, ssid);
                         continue;
