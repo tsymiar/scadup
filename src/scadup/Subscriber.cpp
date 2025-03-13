@@ -54,8 +54,9 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
         memset(static_cast<void*>(&msg), 0, size);
         len = ::recv(m_socket, reinterpret_cast<char*>(&msg), size, MSG_WAITALL);
         if (len == 0 || (len < 0 && errno != EAGAIN)) {
-            LOGE("Receive msg fail[%ld], %s", len, strerror(errno));
-            Close(m_socket);
+            LOGE("Receive msg fail[%ld] sock=%d, %s", len, m_socket, strerror(errno));
+            if (m_socket >= 0)
+                Close(m_socket);
             return -2;
         }
         if (memcmp(reinterpret_cast<char*>(&msg), "Scadup", 7) == 0)
@@ -84,8 +85,9 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
             }
             len = ::recv(m_socket, body, length, 0);
             if (len < 0 || (len == 0 && errno != EINTR)) {
-                LOGE("Receive body fail, %s", strerror(errno));
-                Close(m_socket);
+                LOGE("Receive body fail[%ld], sock=%d, %s", len, m_socket, strerror(errno));
+                if (m_socket >= 0)
+                    Close(m_socket);
                 Delete(body);
                 return -5;
             } else {

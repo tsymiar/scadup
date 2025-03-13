@@ -298,6 +298,7 @@ int Broker::ProxyTask(Networks& works, const Network& work)
             left -= got;
             len += got;
             if (len == sz1) {
+                memcpy(msg->payload.status, payload, sz1);
                 payload = msg->payload.content;
                 size = left;
                 len = 0;
