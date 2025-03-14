@@ -25,6 +25,7 @@ ssize_t Publisher::broadcast(const uint8_t* data, size_t len)
         LOGE("Writes %d: %s", bytes, strerror(errno));
         return -3;
     }
+    wait(Time100ms);
     Close(m_socket);
     return bytes;
 }
@@ -60,7 +61,6 @@ int Publisher::publish(uint32_t topic, const std::string& payload, ...)
 
     ssize_t bytes = broadcast(message, msgLen);
     LOGI("broadcast message size expect=%d, bytes=%d.", msgLen, bytes);
-    wait(Time100ms);
     Delete(message);
 
     return bytes;

@@ -42,6 +42,7 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
     } else {
         g_threadpool.start(3);
     }
+    int32_t state = 0;
     volatile bool flag = false;
     do {
         if (m_exit) {
@@ -57,7 +58,8 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
             LOGE("Receive msg fail[%ld] sock=%d, %s", len, m_socket, strerror(errno));
             if (m_socket >= 0)
                 Close(m_socket);
-            return -2;
+            state = -2;
+            break;
         }
         if (memcmp(reinterpret_cast<char*>(&msg), "Scadup", 7) == 0)
             continue;
@@ -71,7 +73,8 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
             if (len < 0) {
                 LOGE("Writes %s", strerror(errno));
                 Close(m_socket);
-                return -3;
+                state = -3;
+                break;
             }
             LOGI("MQ writes %ld [%lld] %s.", len, msg.head.ssid, GET_FLAG(msg.head.flag));
             continue;
@@ -81,7 +84,8 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
             char* body = new(std::nothrow) char[length];
             if (body == nullptr) {
                 LOGE("Extra body(%u, %lu) malloc failed!", msg.head.size, size);
-                return -4;
+                state = -4;
+                break;
             }
             len = ::recv(m_socket, body, length, 0);
             if (len < 0 || (len == 0 && errno != EINTR)) {
@@ -89,7 +93,8 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
                 if (m_socket >= 0)
                     Close(m_socket);
                 Delete(body);
-                return -5;
+                state = -5;
+                break;
             } else {
                 auto* message = reinterpret_cast<Message*>(new char[size + len]);
                 if (message != nullptr) {
@@ -110,7 +115,8 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
             Delete(body);
         }
     } while (flag);
-    return 0;
+    quit();
+    return state;
 }
 
 void Subscriber::keepAlive(SOCKET socket, bool& exit)
@@ -132,6 +138,7 @@ void Subscriber::keepAlive(SOCKET socket, bool& exit)
 
 void Subscriber::quit()
 {
+    m_exit = true;
     g_threadpool.stop();
     Header head{};
     head.cmd = 0xff;
@@ -141,9 +148,4 @@ void Subscriber::quit()
         Close(m_socket);
         m_socket = 0;
     }
-}
-
-void Subscriber::exit()
-{
-    m_exit = true;
 }

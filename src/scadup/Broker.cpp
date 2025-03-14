@@ -101,12 +101,18 @@ int Scadup::connect(const char* ip, unsigned short port, unsigned int total)
     local.sin_addr.s_addr = inet_addr(ip);
     char flag = 1;
     setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(char));
-    LOGI("------ connecting to %s:%d ------", ip, port);
+    LOGI("------ Connecting to %s:%d ------", ip, port);
     unsigned int tries = 0;
     while (::connect(sock, reinterpret_cast<struct sockaddr*>(&local), sizeof(local)) == (-1)) {
         if (tries < total) {
             wait(Time100ms * (long)pow(2, tries));
+            Close(sock);
+            if (!makeSocket(sock)) {
+                LOGE("Connect to make socket fail, when tries up %d times!", tries);
+                return -1;
+            }
             tries++;
+            LOGW("Has tring connets to %s:%d %d times.", ip, port, tries);
         } else {
             LOGE("Retrying to connect (times=%d, %s).", tries, (errno != 0 ? strerror(errno) : "No error"));
             Close(sock);

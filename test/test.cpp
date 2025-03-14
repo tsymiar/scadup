@@ -14,6 +14,7 @@ static void usage()
         << "2 [topic] -- run as subscriber" << endl
         << "3 [topic] [payload] -- run as publisher messaging to broker" << endl
         << "3 [topic] [-f [filename]] -- run as publisher send file content" << endl;
+    exit(0);
 }
 
 int main(int argc, char* argv[])
@@ -27,7 +28,6 @@ int main(int argc, char* argv[])
                     (argv1 == "3" ? PUBLISHER : BROKER)));
     } else {
         usage();
-        return 0;
     }
     unsigned short PORT = 9999;
     string IP = "";
@@ -48,29 +48,32 @@ int main(int argc, char* argv[])
     Broker broker;
     Publisher publisher;
     Subscriber subscriber;
+    int state = 0;
     switch (flag) {
     case BROKER:
-        broker.setup();
-        broker.broker();
+        state = broker.setup();
+        if (state == 0)
+            state = broker.broker();
         break;
     case SUBSCRIBER:
         subscriber.setup(IP.c_str(), PORT);
-        subscriber.subscribe(topic);
+        state = subscriber.subscribe(topic);
         break;
     case PUBLISHER:
         publisher.setup(IP.c_str(), PORT);
         if (argc > 4 && string(argv[3]) == "-f") {
             message = argv[4];
-            publisher.publish(topic, FileUtils::instance()->GetFileStringContent(message));
+            state = publisher.publish(topic, FileUtils::instance()->GetFileStringContent(message));
         } else {
             if (argc == 4) {
                 message = string(argv[3]);
             }
-            publisher.publish(topic, message);
+            state = publisher.publish(topic, message);
         }
         break;
     default:
         cout << "flag [" << flag << "] not implements." << endl;
         break;
     }
+    cout << argv[0] << ": " << state << endl;
 }
