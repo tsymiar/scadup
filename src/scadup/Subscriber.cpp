@@ -149,3 +149,9 @@ void Subscriber::quit()
         m_socket = 0;
     }
 }
+
+void Subscriber::exit()
+{
+    m_exit = true;
+    g_threadpool.stop();
+}

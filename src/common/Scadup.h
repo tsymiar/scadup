@@ -139,6 +139,7 @@ namespace Scadup {
         void setup(const char*, unsigned short = 9999);
         ssize_t subscribe(uint32_t, RECV_CALLBACK = nullptr);
         void quit();
+        static void exit();
     private:
         void keepAlive(SOCKET, bool&);
     private:
