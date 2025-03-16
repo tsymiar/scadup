@@ -1,6 +1,7 @@
 #include "common/Scadup.h"
 #include "utils/FileUtils.h"
 #include <iostream>
+#include <utils/FileUtils.h>
 
 using namespace std;
 using namespace Scadup;
@@ -56,11 +57,13 @@ int main(int argc, char* argv[])
             state = broker.broker();
         break;
     case SUBSCRIBER:
-        subscriber.setup(IP.c_str(), PORT);
-        state = subscriber.subscribe(topic);
+        state = subscriber.setup(IP.c_str(), PORT);
+        if (state == 0)
+            state = subscriber.subscribe(topic);
         break;
     case PUBLISHER:
-        publisher.setup(IP.c_str(), PORT);
+        state = publisher.setup(IP.c_str(), PORT);
+        if (state < 0) break;
         if (argc > 4 && string(argv[3]) == "-f") {
             message = argv[4];
             state = publisher.publish(topic, FileUtils::instance()->GetFileStringContent(message));
