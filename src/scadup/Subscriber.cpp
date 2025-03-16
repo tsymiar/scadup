@@ -11,9 +11,13 @@ extern const char* GET_FLAG(G_ScaFlag x);
 bool Subscriber::m_exit = false;
 threadpool g_threadpool{};
 
-void Subscriber::setup(const char* ip, unsigned short port)
+int Subscriber::setup(const char* ip, unsigned short port)
 {
     m_socket = socket2Broker(ip, port, m_ssid, 60);
+    if (m_socket < 0) {
+        LOGE("socket set to Broker fail, invalid socket!");
+        return -1;
+    }
     std::function<void(SOCKET, bool&)> func = [&](SOCKET sock, bool& exit) -> void {
         try {
             LOGI("start keep-alive task");
@@ -25,6 +29,7 @@ void Subscriber::setup(const char* ip, unsigned short port)
         }
         };
     g_threadpool.enqueue(func, m_socket, std::ref(m_exit));
+    return 0;
 }
 
 ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
@@ -152,6 +157,7 @@ void Subscriber::quit()
 
 void Subscriber::exit()
 {
+    abandon();
     m_exit = true;
     g_threadpool.stop();
 }

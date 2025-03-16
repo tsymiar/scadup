@@ -96,6 +96,7 @@ namespace Scadup {
     extern SOCKET socket2Broker(const char* ip, unsigned short port, uint64_t& ssid, uint32_t timeout);
     extern int connect(const char* ip, unsigned short port, unsigned int total);
     extern ssize_t writes(SOCKET socket, const uint8_t* data, size_t len);
+    extern void abandon(void);
 }
 
 namespace Scadup {
@@ -123,7 +124,7 @@ namespace Scadup {
 namespace Scadup {
     class Publisher {
     public:
-        void setup(const char*, unsigned short = 9999);
+        int setup(const char*, unsigned short = 9999);
         int publish(uint32_t, const std::string&, ...);
     private:
         ssize_t broadcast(const uint8_t*, size_t);
@@ -136,7 +137,7 @@ namespace Scadup {
 namespace Scadup {
     class Subscriber {
     public:
-        void setup(const char*, unsigned short = 9999);
+        int setup(const char*, unsigned short = 9999);
         ssize_t subscribe(uint32_t, RECV_CALLBACK = nullptr);
         void quit();
         static void exit();

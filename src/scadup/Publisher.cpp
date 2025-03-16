@@ -5,9 +5,14 @@
 
 using namespace Scadup;
 
-void Publisher::setup(const char* ip, unsigned short port)
+int Publisher::setup(const char* ip, unsigned short port)
 {
     m_socket = socket2Broker(ip, port, m_ssid, 3);
+    if (m_socket < 0) {
+        LOGE("socket set to Broker fail, invalid socket!");
+        return -1;
+    }
+    return 0;
 }
 
 ssize_t Publisher::broadcast(const uint8_t* data, size_t len)

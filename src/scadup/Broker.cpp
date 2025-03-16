@@ -15,6 +15,7 @@ using namespace Scadup;
 static struct MsgQue g_msgQue;
 char G_FlagValue[][0xc] = { "NONE", "BROKER", "PUBLISHER", "SUBSCRIBER", };
 const char* GET_FLAG(G_ScaFlag x) { return (x >= NONE && x < MAX_VAL) ? G_FlagValue[x] : G_FlagValue[0]; };
+volatile bool g_state = false;
 
 void signalCatch(int value)
 {
@@ -67,6 +68,8 @@ ssize_t Scadup::writes(SOCKET socket, const uint8_t* data, size_t len)
     memcpy(buff, data, left);
     ssize_t sent = 0;
     while (left > 0 && (size_t)sent < len) {
+        if (g_state)
+            break;
         if ((sent = Write(socket, reinterpret_cast<char*>(buff + sent), left)) <= 0) {
             if (sent < 0) {
                 if (errno == EINTR) {
@@ -104,6 +107,8 @@ int Scadup::connect(const char* ip, unsigned short port, unsigned int total)
     LOGI("------ Connecting to %s:%d ------", ip, port);
     unsigned int tries = 0;
     while (::connect(sock, reinterpret_cast<struct sockaddr*>(&local), sizeof(local)) == (-1)) {
+        if (g_state)
+            break;
         if (tries < total) {
             wait(Time100ms * (long)pow(2, tries));
             Close(sock);
@@ -112,7 +117,7 @@ int Scadup::connect(const char* ip, unsigned short port, unsigned int total)
                 return -1;
             }
             tries++;
-            LOGW("Has tring connets to %s:%d %d times.", ip, port, tries);
+            LOGW("Have trying connects %s:%d %d times.", ip, port, tries);
         } else {
             LOGE("Retrying to connect (times=%d, %s).", tries, (errno != 0 ? strerror(errno) : "No error"));
             Close(sock);
@@ -146,6 +151,11 @@ SOCKET Scadup::socket2Broker(const char* ip, unsigned short port, uint64_t& ssid
         return -3;
     }
     return socket;
+}
+
+void Scadup::abandon()
+{
+    g_state = true;
 }
 
 Broker& Broker::instance()

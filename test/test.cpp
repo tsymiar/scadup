@@ -1,6 +1,7 @@
 #include "common/Scadup.h"
 #include "utils/FileUtils.h"
 #include <iostream>
+#include <utils/FileUtils.h>
 
 using namespace std;
 using namespace Scadup;
@@ -29,15 +30,20 @@ int main(int argc, char* argv[])
     } else {
         usage();
     }
-    unsigned short PORT = 9999;
     string IP = "";
+    unsigned short PORT = 0;
     string content = FileUtils::instance()->getStrFile2string("scadup.cfg");
     if (!content.empty()) {
         IP = FileUtils::instance()->getVariable(content, "IP");
+        PORT = atoi(FileUtils::instance()->getVariable(content, "PORT").c_str());
     }
     if (IP.empty()) {
         IP = "127.0.0.1";
         cout << "IP is null when parse 'scadup.cfg', set default IP: " << IP << endl;
+    }
+    if (PORT == 0) {
+        PORT = 9999;
+        cout << "PORT is null when parse 'scadup.cfg', set default PORT: " << PORT << endl;
     }
     cout << argv[0] << ": " << GET_FLAG(flag) << " test start." << endl;
     uint32_t topic = 0x1234;
@@ -51,16 +57,18 @@ int main(int argc, char* argv[])
     int state = 0;
     switch (flag) {
     case BROKER:
-        state = broker.setup();
+        state = broker.setup(PORT);
         if (state == 0)
             state = broker.broker();
         break;
     case SUBSCRIBER:
-        subscriber.setup(IP.c_str(), PORT);
-        state = subscriber.subscribe(topic);
+        state = subscriber.setup(IP.c_str(), PORT);
+        if (state == 0)
+            state = subscriber.subscribe(topic);
         break;
     case PUBLISHER:
-        publisher.setup(IP.c_str(), PORT);
+        state = publisher.setup(IP.c_str(), PORT);
+        if (state < 0) break;
         if (argc > 4 && string(argv[3]) == "-f") {
             message = argv[4];
             state = publisher.publish(topic, FileUtils::instance()->GetFileStringContent(message));
