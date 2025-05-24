@@ -62,4 +62,4 @@ jobs:
 
     - name: clean
       working-directory: ${{ github.workspace }}
-      run: ./build.sh clean
+      run: ./make.sh clean

@@ -55,4 +55,12 @@ add_custom_command(TARGET ${PROJECT_NAME}
     copy_if_different
     "${PROJECT_SOURCE_DIR}/common/Scadup.h"
     "${PROJECT_SOURCE_DIR}/../target/include/${TARGET}.h"
+    COMMAND ${CMAKE_COMMAND} -E
+    copy_if_different
+    "${PROJECT_SOURCE_DIR}/utils/logging.h"
+    "${PROJECT_SOURCE_DIR}/../target/include/logging.h"
+    COMMAND ${CMAKE_COMMAND} -E
+    copy_if_different
+    "${PROJECT_SOURCE_DIR}/utils/FileUtils.h"
+    "${PROJECT_SOURCE_DIR}/../target/include/fileutil.h"
 )
