@@ -97,7 +97,7 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
                 LOGE("Receive body fail[%ld], sock=%d, %s", len, m_socket, strerror(errno));
                 if (m_socket >= 0)
                     Close(m_socket);
-                Delete(body);
+                DelArr(body);
                 state = -5;
                 break;
             } else {
@@ -114,10 +114,10 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
                         g_threadpool.enqueue(callback, *message);
                     }
                     LOGI("message payload = [%s]-[%s]", message->payload.status, message->payload.content);
-                    Delete(message);
+                    DelArr(message);
                 }
             }
-            Delete(body);
+            DelArr(body);
         }
     } while (flag);
     quit();

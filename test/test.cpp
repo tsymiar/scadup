@@ -1,6 +1,7 @@
 #include <scadup.h>
 #include <logging.h>
 #include <fileutil.h>
+#include <iostream>
 
 using namespace std;
 using namespace Scadup;

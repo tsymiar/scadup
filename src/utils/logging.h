@@ -8,11 +8,10 @@
 #ifdef _WIN32
 inline const char* basename(const char* name)
 {
-    char file[256];
-    size_t len = 256;
-    snprintf(file, len, "%s", name);
-    static char* base = new char[len];
-    for (size_t i = 0; i < len; i++) { if (file[i] == '/' || file[i] == '\\') { memcpy(base, file + i + 1, len - i); memset(base + len - i, 0, 1); } }
+    const char* base = name;
+    for (const char* ptr = name; *ptr; ++ptr) {
+        if (*ptr == '/' || *ptr == '\\') base = ptr + 1;
+    }
     return base;
 }
 #else

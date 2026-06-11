@@ -12,19 +12,22 @@ extern "C" {
 
 using namespace Scadup;
 
-static struct MsgQue g_msgQue;
 char G_FlagValue[][0xc] = { "NONE", "BROKER", "PUBLISHER", "SUBSCRIBER", };
 const char* GET_FLAG(G_ScaFlag x) { return (x >= NONE && x < MAX_VAL) ? G_FlagValue[x] : G_FlagValue[0]; };
 volatile bool g_state = false;
 
+#ifndef _WIN32
 void signalCatch(int value)
 {
     if (value == SIGSEGV) {
-        LOGE("Segmentation fault caught!");
-        exit(EXIT_FAILURE); // exit
+        const char msg[] = "Segmentation fault caught!\n";
+        ::write(STDERR_FILENO, msg, sizeof(msg) - 1);
+        _exit(EXIT_FAILURE);
     }
-    LOGI("caught signal: %d", value);
+    // SIGPIPE: set quit flag for main loop to handle gracefully
+    g_state = true;
 }
+#endif
 
 bool Scadup::makeSocket(SOCKET& socket)
 {
@@ -59,23 +62,15 @@ ssize_t Scadup::writes(SOCKET socket, const uint8_t* data, size_t len)
     static std::mutex mtxLck; // static lock
     std::lock_guard<std::mutex> lock(mtxLck);
     auto left = (ssize_t)len;
-    auto* buff = new(std::nothrow) uint8_t[left];
-    if (buff == nullptr) {
-        LOGE("Socket buffer malloc size %zu failed!", left);
-        return -2;
-    }
-    memset(buff, 0, left);
-    memcpy(buff, data, left);
     ssize_t sent = 0;
     while (left > 0 && (size_t)sent < len) {
         if (g_state)
             break;
-        if ((sent = Write(socket, reinterpret_cast<char*>(buff + sent), left)) <= 0) {
+        if ((sent = Write(socket, reinterpret_cast<const char*>(data + sent), left)) <= 0) {
             if (sent < 0) {
                 if (errno == EINTR) {
                     sent = 0; /* call write() again */
                 } else {
-                    Delete(buff);
                     LOGE("Write to socket failed with errno %d", errno);
                     return -2; /* error */
                 }
@@ -87,7 +82,6 @@ ssize_t Scadup::writes(SOCKET socket, const uint8_t* data, size_t len)
         }
         left -= sent;
     }
-    Delete(buff);
     return ssize_t(len - left);
 }
 
@@ -102,8 +96,8 @@ int Scadup::connect(const char* ip, unsigned short port, unsigned int total)
     local.sin_family = AF_INET;
     local.sin_port = htons(port);
     local.sin_addr.s_addr = inet_addr(ip);
-    char flag = 1;
-    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(char));
+    int flag = 1;
+    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&flag), sizeof(flag));
     LOGI("------ Connecting to %s:%d ------", ip, port);
     unsigned int tries = 0;
     while (::connect(sock, reinterpret_cast<struct sockaddr*>(&local), sizeof(local)) == (-1)) {
@@ -166,7 +160,9 @@ Broker& Broker::instance()
 
 int Broker::setup(unsigned short port)
 {
+#ifndef _WIN32
     signal(SIGPIPE, signalCatch);
+#endif
 
     SOCKET sock = -1;
     if (!makeSocket(sock)) {
@@ -193,7 +189,8 @@ int Broker::setup(unsigned short port)
         return -3;
     }
 
-    mq_init(&g_msgQue);
+    m_msgQue = new MsgQue{};
+    mq_init(static_cast<MsgQue*>(m_msgQue));
     m_socket = sock;
     m_active = true;
 
@@ -214,20 +211,7 @@ int Broker::setup(unsigned short port)
 
 uint64_t Broker::setSession(const std::string& addr, unsigned short port, SOCKET key)
 {
-    unsigned int ip = 0;
-    const char* s = reinterpret_cast<const char*>(&addr);
-    unsigned char t = 0;
-    while (true) {
-        if (*s != '\0' && *s != '.') {
-            t = (unsigned char)(t * 10 + *s - '0');
-        } else {
-            ip = (ip << 8) + t;
-            if (*s == '\0')
-                break;
-            t = 0;
-        }
-        s++;
-    }
+    unsigned int ip = ntohl(inet_addr(addr.c_str()));
     return ((uint64_t)port << 16 | key << 8 | ip);
 }
 
@@ -245,13 +229,7 @@ void Broker::taskAllot(Networks& works, const Network& work)
             setOffline(works, work.socket);
             LOGW("Socket lost/closing by itself!");
         } else {
-            std::thread proxy([&](Broker* b) -> void {
-                if (b != nullptr)
-                    b->ProxyTask(works, work);
-                }, this);
-            if (proxy.joinable()) {
-                proxy.detach();
-            }
+            ProxyTask(works, work);
         }
     }
     if (work.head.flag == SUBSCRIBER) {
@@ -285,87 +263,102 @@ int Broker::ProxyTask(Networks& works, const Network& work)
         works[work.head.flag >= MAX_VAL && work.head.flag < MAX_VAL ? work.head.flag : NONE].size(),
         work.IP, work.PORT, work.head.size);
     const size_t sz1 = sizeof(Message::Payload::status);
-    size_t left = work.head.size - HEAD_SIZE;
-    static Message mval{};
-    auto* msg = new(mval) Message; // placement new
-    msg->payload.content = new(std::nothrow) char[left - sz1];
+    const size_t msgSize = work.head.size - HEAD_SIZE;
+    const size_t contSize = msgSize - sz1;
+
+    // heap-allocate Message; must free payload.content before delete msg
+    auto* msg = new Message{};
+    msg->payload.content = new(std::nothrow) char[contSize];
     if (msg->payload.content == nullptr) {
         LOGE("Payload content allocation failed!");
-        delete msg;
+        DelPtr(msg);
         return -1;
     }
-    memset(msg->payload.content, 0, left - sz1);
+    memset(msg->payload.content, 0, contSize);
+
+    // receive: first sz1 bytes -> status[], rest -> content
+    size_t left = msgSize;
     size_t len = 0;
     size_t size = sz1;
-    char* payload = (char*)msg;
+    char* payload = msg->payload.status;
     do {
-        ssize_t got = ::recv(work.socket, reinterpret_cast<char*>(payload + len), size, 0);
+        ssize_t got = ::recv(work.socket, payload + len, size, 0);
         if (got < 0) {
             if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                LOGE("Call recv(%d) failed: %s", got, strerror(errno));
-                delete[] msg->payload.content;
+                LOGE("Call recv(%ld) failed: %s", got, strerror(errno));
+                DelArr(msg->payload.content);
+                DelPtr(msg);
                 return -1;
             }
         } else if (got == 0) {
             LOGW("Connection closed by peer.");
-            delete[] msg->payload.content;
+            DelArr(msg->payload.content);
+            DelPtr(msg);
             return -1;
         } else {
-            left -= got;
-            len += got;
+            left -= static_cast<size_t>(got);
+            len += static_cast<size_t>(got);
             if (len == sz1) {
-                memcpy(msg->payload.status, payload, sz1);
                 payload = msg->payload.content;
-                size = left;
+                size = contSize;
                 len = 0;
             }
         }
     } while (left > 0);
+
     msg->head = work.head;
-    mq_push(&g_msgQue, msg);
+    mq_push(static_cast<MsgQue*>(m_msgQue), msg);
     setOffline(works, work.socket);
-    std::vector<Network>& vec = works[SUBSCRIBER];// only SUBSCRIBER should be sent
-    if (vec.empty()) {
+
+    // forward message to matching subscribers
+    std::vector<Network>& subs = works[SUBSCRIBER];
+    if (subs.empty()) {
         LOGW("No subscriber to publish!");
     }
-    void* message = mq_front(&g_msgQue);
-    if (message != nullptr) {
-        Message val = *reinterpret_cast<Message*>(message);
-        if (val.head.flag != PUBLISHER) {
-            LOGW("Message invalid(%d), len=%u!", val.head.flag, val.head.size);
+    void* raw = mq_front(static_cast<MsgQue*>(m_msgQue));
+    if (raw != nullptr) {
+        auto* val = static_cast<Message*>(raw);
+        if (val->head.flag != PUBLISHER) {
+            LOGW("Message invalid(%d), len=%u!", val->head.flag, val->head.size);
+            DelArr(val->payload.content);
+            DelPtr(val);
+            mq_pop(static_cast<MsgQue*>(m_msgQue));
             return -1;
         }
-        if (val.head.size > 0) {
-            for (auto& sub : vec) {
+        if (val->head.size > 0) {
+            for (auto& sub : subs) {
                 if (sub.head.topic == work.head.topic) {
                     if (sub.active && sub.socket > 0) {
-                        left = work.head.size;
+                        left = val->head.size;
                         size = HEAD_SIZE + sz1;
-                        char* buff = (char*)&val;
+                        const char* buff = reinterpret_cast<const char*>(val);
                         do {
-                            size_t sz = ::send(sub.socket, buff, size, MSG_NOSIGNAL);
+                            ssize_t sz = ::send(sub.socket, buff, size, MSG_NOSIGNAL);
                             if (sz == 0 || (sz < 0 && errno == EPIPE)) {
                                 setOffline(works, sub.socket);
-                                LOGE("Write to sock[%d], size %u failed!", sub.socket, val.head.size);
+                                LOGE("Write to sock[%d], size %u failed!", sub.socket, val->head.size);
                                 break;
-                            } else {
-                                if (sz == HEAD_SIZE + sz1) {
-                                    size = work.head.size - HEAD_SIZE - sz1;
-                                    buff = val.payload.content;
-                                }
-                                left -= sz;
                             }
+                            if (static_cast<size_t>(sz) == HEAD_SIZE + sz1) {
+                                size = val->head.size - HEAD_SIZE - sz1;
+                                buff = val->payload.content;
+                            }
+                            left -= static_cast<size_t>(sz);
                         } while (left > 0);
-                        LOGI("writes message to subscriber[%s:%u], size %u!", sub.IP, sub.PORT, val.head.size);
+                        LOGI("writes message to subscriber[%s:%u], size %u!", sub.IP, sub.PORT, val->head.size);
                     } else {
                         LOGW("No valid subscriber of topic %04x!", sub.head.topic);
                     }
                 }
             }
-            Delete(val.payload.content)
-                mq_pop(&g_msgQue);
+            DelArr(val->payload.content);
+            DelPtr(val);
+            mq_pop(static_cast<MsgQue*>(m_msgQue));
         } else {
-            LOGW("Message size(%u) invalid!", val.head.size);
+            LOGW("Message size(%u) invalid!", val->head.size);
+            DelArr(val->payload.content);
+            DelPtr(val);
+            mq_pop(static_cast<MsgQue*>(m_msgQue));
         }
     } else {
         LOGW("MsgQue is null!");
@@ -436,8 +429,8 @@ int Broker::broker()
                     LOGE("Socket accept (%s).", (errno != 0 ? strerror(errno) : std::to_string((int)sockNew).c_str()));
                     return -1;
                 } else {
-                    bool set = true;
-                    setsockopt(sockNew, SOL_SOCKET, SO_KEEPALIVE, reinterpret_cast<const char*>(&set), sizeof(bool));
+                    int set = 1;
+                    setsockopt(sockNew, SOL_SOCKET, SO_KEEPALIVE, reinterpret_cast<const char*>(&set), sizeof(set));
                     Network work = {};
                     getpeername(sockNew, reinterpret_cast<struct sockaddr*>(&peer), &socklen);
                     char addr[INET_ADDRSTRLEN];
@@ -494,9 +487,38 @@ int Broker::broker()
 void Broker::exit()
 {
     m_active = false;
+    auto* mq = static_cast<MsgQue*>(m_msgQue);
+
+    // drain message queue: free content + delete Message
+    {
+        void* ft;
+        while ((ft = mq_front(mq)) != nullptr) {
+            auto* msg = static_cast<Message*>(ft);
+            DelArr(msg->payload.content);
+            DelPtr(msg);
+            mq_pop(mq);
+        }
+    }
+
+    // close all connected client sockets
+    {
+        std::lock_guard<std::mutex> lock(m_lock);
+        for (auto& wks : m_networks) {
+            for (auto& wk : wks.second) {
+                if (wk.socket > 0) {
+                    Close(wk.socket);
+                    wk.socket = 0;
+                }
+            }
+        }
+        m_networks.clear();
+    }
+
     if (m_socket > 0) {
         Close(m_socket);
         m_socket = -1;
     }
-    mq_deinit(&g_msgQue);
+    mq_deinit(mq);
+    DelPtr(mq);
+    m_msgQue = nullptr;
 }

@@ -1,6 +1,12 @@
 #ifndef MSG_QUE_H
 #define MSG_QUE_H
 
+#ifdef _WIN32
+#include <Windows.h>
+#else
+#include <pthread.h>
+#endif
+
 typedef struct iNode {
     void* data;
     struct iNode* next;
@@ -9,6 +15,11 @@ typedef struct iNode {
 typedef struct MsgQue {
     INode* head;
     INode* tail;
+#ifdef _WIN32
+    CRITICAL_SECTION mutex;
+#else
+    pthread_mutex_t mutex;
+#endif
 } MsgQue;
 
 void mq_init(struct MsgQue* q);

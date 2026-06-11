@@ -6,12 +6,7 @@
 #include <chrono>
 #include <algorithm>
 #include <cmath>
-#include <deque>
-#include <fstream>
-#include <functional>
-#include <iostream>
 #include <map>
-#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -28,7 +23,6 @@
 #ifdef _WIN32
 #define  __attribute__(x)
 #define MSG_NOSIGNAL 0
-#define signal(_1,_2) {}
 inline void Close(SOCKET x)
 {
 #ifdef _MSC_VER
@@ -46,8 +40,27 @@ using SOCKET = int;
 #define Close ::close
 #endif
 const unsigned int Time100ms = 100;
-#define Write(x,y,z) ::send(x,(char*)(y),z,MSG_NOSIGNAL)
-#define Delete(s) { if (s != nullptr) { delete[] s; s = nullptr; } }
+inline ssize_t Write(SOCKET sock, const void* data, size_t len)
+{
+    return ::send(sock, static_cast<const char*>(data), len, MSG_NOSIGNAL);
+}
+template<typename T>
+inline void DelArr(T*& arr)
+{
+    if (arr) {
+        delete[] arr;
+        arr = nullptr;
+    }
+}
+
+template<typename T>
+inline void DelPtr(T*& p)
+{
+    if (p) {
+        delete p;
+        p = nullptr;
+    }
+}
 
 inline void wait(unsigned int tms)
 {
@@ -75,12 +88,7 @@ namespace Scadup {
         struct Payload {
             char status[8];
             char* content = nullptr;
-        } __attribute__((aligned(4))) payload { };
-        void* operator new(size_t, const Message& msg)
-        {
-            static void* mss = (void*)(&msg);
-            return mss;
-        }
+        } __attribute__((aligned(4))) payload {};
     } __attribute__((aligned(4)));
     struct Network {
         SOCKET socket = 0;
@@ -116,6 +124,7 @@ namespace Scadup {
     private:
         std::mutex m_lock = {};
         Networks m_networks{};
+        void* m_msgQue = nullptr;
         SOCKET m_socket = -1;
         bool m_active = false;
     };

@@ -66,7 +66,7 @@ int Publisher::publish(uint32_t topic, const std::string& payload, ...)
 
     ssize_t bytes = broadcast(message, msgLen);
     LOGI("broadcast message size expect=%d, bytes=%d.", msgLen, bytes);
-    Delete(message);
+    DelArr(message);
 
     return bytes;
 }
