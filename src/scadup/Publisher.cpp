@@ -28,10 +28,13 @@ ssize_t Publisher::broadcast(const uint8_t* data, size_t len)
     ssize_t bytes = writes(m_socket, data, len);
     if (bytes <= 0) {
         LOGE("Writes %d: %s", bytes, strerror(errno));
+        Close(m_socket);
+        m_socket = -1;
         return -3;
     }
     wait(Time100ms);
     Close(m_socket);
+    m_socket = -1;
     return bytes;
 }
 
@@ -47,10 +50,12 @@ int Publisher::publish(uint32_t topic, const std::string& payload, ...)
     Message msg = {};
     memset(static_cast<void*>(&msg), 0, sizeof(Message));
     size = (size > maxLen ? maxLen : size);
-    size_t msgLen = sizeof(msg) + size;
+    size_t msgLen = sizeof(Message) + size - sizeof(char*) + 1;
     auto* message = new(std::nothrow) uint8_t[msgLen + 1];
     if (message == nullptr) {
         LOGE("Message malloc len %zu failed!", msgLen + 1);
+        Close(m_socket);
+        m_socket = -1;
         return -1;
     }
 
