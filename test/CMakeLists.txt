@@ -11,20 +11,22 @@ if (NOT WIN32)
     endif()
 else()
     set(EXTERN WS2_32)
+    # MSVC rejects inet_ntoa()/localtime() as deprecated without these
+    add_definitions(-D_CRT_SECURE_NO_WARNINGS -D_WINSOCK_DEPRECATED_NO_WARNINGS)
 endif()
 
 add_definitions(${OPTION})
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+# CMAKE_CXX_STANDARD covers this: MSVC wants /std:c++11, GCC/Clang wants -std=c++11
 
 file(GLOB TEST_FILE "*test*.*")
+set(TARGET test)
 include_directories(${CMAKE_SOURCE_DIR}/target/include)
 
 if (NOT WIN32)
-    add_executable(test ${TEST_FILE})
+    add_executable(${TARGET} ${TEST_FILE})
     add_subdirectory(${CMAKE_SOURCE_DIR}/src build)
-    target_link_libraries(test scadup ${EXTERN})
+    target_link_libraries(${TARGET} scadup ${EXTERN})
 else()
-    set(TARGET test)
     set(SCADUP_SRC ${CMAKE_SOURCE_DIR}/src)
     include_directories(${SCADUP_SRC})
     add_subdirectory(${SCADUP_SRC} build)
@@ -48,10 +50,17 @@ else()
     GET_SUB_SRC_FILES(SUB_FILES ${SCADUP_SRC})
     add_executable(${TARGET} ${SUB_FILES} ${TEST_FILE})
     if(EXISTS ${SCADUP_LIB})
-        add_dependencies(${TARGET} scadup)
         target_link_libraries(${TARGET} ${SCADUP_LIB})
     endif()
     target_link_libraries(${TARGET} ${EXTERN})
 endif()
+
+# The tests include the published headers from target/include, which the library writes
+# during its POST_BUILD step, so the library has to finish first. target_link_libraries()
+# implies that only when the built library is actually linked, and that is skipped here
+# (this executable compiles the sources itself, and find_library() runs at configure time
+# when the library does not exist yet). Without this the test can compile while
+# target/include is still missing, hitting C1083 on a clean checkout.
+add_dependencies(${TARGET} scadup)
 
 file(COPY scadup.cfg DESTINATION ${CMAKE_BINARY_DIR}/test)

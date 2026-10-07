@@ -1,6 +1,12 @@
 #ifndef SCADUP_LOGGING_H
 #define SCADUP_LOGGING_H
 
+#ifdef _MSC_VER
+// MSVC flags localtime()/gmtime() as unsafe (C4996); this is a printf-style logger
+// where the _s variants would add nothing but noise.
+#pragma warning(disable:4996)
+#endif
+
 #include <stdio.h>
 #include <time.h>
 #include <stdarg.h>

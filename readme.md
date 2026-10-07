@@ -24,7 +24,7 @@ A lightweight Pub/Sub message broker system.
 
 ```
 Publisher ──┐            ┌─── Subscriber
-Publisher ──┼──▶ Broker─ ┼──▶ Subscriber
+Publisher ──┼──▶ Broker──┼──▶ Subscriber
 Publisher ──┘            └─── Subscriber
 ```
 
@@ -61,14 +61,24 @@ PORT=9999
 ## Build
 
 ```bash
-# Linux
+# Linux / macOS
 ./make.sh
+
+# Windows (cmd / PowerShell)
+make.bat
 
 # Android
 cmake -DANDROID=1 -DANDROID_ABI=arm64-v8a ..
 ```
 
+For Windows, the build links `WS2_3
+2` automatically. Winsock is started once per process
+(`WSAStartup` in `Scadup::makeSocket`); `socket` handles are unsigned, so validity is
+tested with `sockValid()` / `INVALID_FD` rather than `< 0`, and socket errors are read
+through `SOCK_ERRNO` + `sockError()` (`WSAGetLastError()` + `FormatMessage`) instead of
+`errno` + `strerror`.
+
 ## Usage
 
-* Test case: [test](../test)
+* Test case: [test](test)
 * Example project: [Device2Device](https://github.com/tsymiar/Device2Device/tree/main/app/src/main/cpp)

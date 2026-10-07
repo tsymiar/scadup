@@ -32,22 +32,23 @@ void signalCatch(int value)
 bool Scadup::makeSocket(SOCKET& socket)
 {
 #ifdef _WIN32
-    WSADATA wsaData;
-    WORD version = MAKEWORD(2, 2);
-    int wsResult = WSAStartup(version, &wsaData);
-    if (wsResult != 0) {
-        LOGE("WSAStartup fail: %s!", strerror(errno));
-        return false;
-    }
+    // WSAStartup once per process. Pairing it with every Close() would tear Winsock
+    // down while the listener and the connected peers are still running.
+    static std::once_flag wsaFlag;
+    std::call_once(wsaFlag, []() {
+        WSADATA wsaData;
+        int wsResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
+        if (wsResult != 0) {
+            LOGE("WSAStartup fail: %s!", sockError(wsResult).c_str());
+        }
+    });
 #endif
     bool status = true;
     socket = ::socket(AF_INET, SOCK_STREAM, 0);
-    if (socket <= 0) {
+    if (!sockValid(socket)) {
+        int err = SOCK_ERRNO;
         LOGE("Generating socket fail(%s).",
-            (errno != 0 ? strerror(errno) : std::to_string(socket).c_str()));
-#ifdef _WIN32
-        WSACleanup();
-#endif
+            (err != 0 ? sockError(err).c_str() : std::to_string(socket).c_str()));
         status = false;
     }
     return status;
@@ -57,7 +58,7 @@ ssize_t Scadup::writes(SOCKET socket, const uint8_t* data, size_t len)
 {
     if (data == nullptr || len == 0)
         return 0;
-    if (errno == EPIPE)
+    if (SOCK_ECLOSED(SOCK_ERRNO))
         return -1;
     static std::mutex mtxLck; // static lock
     std::lock_guard<std::mutex> lock(mtxLck);
@@ -68,10 +69,12 @@ ssize_t Scadup::writes(SOCKET socket, const uint8_t* data, size_t len)
             break;
         if ((sent = Write(socket, reinterpret_cast<const char*>(data + sent), left)) <= 0) {
             if (sent < 0) {
-                if (errno == EINTR) {
+                int err = SOCK_ERRNO;
+                if (SOCK_EINTR(err)) {
                     sent = 0; /* call write() again */
                 } else {
-                    LOGE("Write to socket failed with errno %d", errno);
+                    LOGE("Write to socket failed with error %d: %s", err,
+                        sockError(err).c_str());
                     return -2; /* error */
                 }
             }
@@ -87,7 +90,7 @@ ssize_t Scadup::writes(SOCKET socket, const uint8_t* data, size_t len)
 
 int Scadup::connect(const char* ip, unsigned short port, unsigned int total)
 {
-    SOCKET sock = -1;
+    SOCKET sock = INVALID_FD;
     if (!makeSocket(sock)) {
         LOGE("Connect to make socket fail!");
         return -1;
@@ -106,6 +109,7 @@ int Scadup::connect(const char* ip, unsigned short port, unsigned int total)
         if (tries < total) {
             wait(Time100ms * (long)pow(2, tries));
             Close(sock);
+            sock = INVALID_FD;
             if (!makeSocket(sock)) {
                 LOGE("Connect to make socket fail, when tries up %d times!", tries);
                 return -1;
@@ -113,7 +117,9 @@ int Scadup::connect(const char* ip, unsigned short port, unsigned int total)
             tries++;
             LOGW("Have trying connects %s:%d %d times.", ip, port, tries);
         } else {
-            LOGE("Retrying to connect (times=%d, %s).", tries, (errno != 0 ? strerror(errno) : "No error"));
+            int err = SOCK_ERRNO;
+            LOGE("Retrying to connect (times=%d, %s).", tries,
+                (err != 0 ? sockError(err).c_str() : "No error"));
             Close(sock);
             return -2;
         }
@@ -124,8 +130,8 @@ int Scadup::connect(const char* ip, unsigned short port, unsigned int total)
 SOCKET Scadup::socket2Broker(const char* ip, unsigned short port, uint64_t& ssid, uint32_t timeout)
 {
     SOCKET socket = connect(ip, port, timeout);
-    if (socket <= 0) {
-        LOGE("Connect fail: %d, %s!", socket, strerror(errno));
+    if (!sockValid(socket)) {
+        LOGE("Connect fail: %d, %s!", (int)socket, sockError(SOCK_ERRNO).c_str());
         return -1;
     }
     Header head{ };
@@ -137,9 +143,11 @@ SOCKET Scadup::socket2Broker(const char* ip, unsigned short port, uint64_t& ssid
             LOGW("Mismatch flag %s, size %u.", GET_FLAG(head.flag), head.size);
     } else {
         if (size == 0) {
-            LOGE("Connection closed by peer, close %d: %s", socket, strerror(errno));
+            LOGE("Connection closed by peer, close %d: %s", (int)socket,
+                sockError(SOCK_ERRNO).c_str());
         } else {
-            LOGE("Recv fail(%zd), close %d: %s", size, socket, strerror(errno));
+            LOGE("Recv fail(%zd), close %d: %s", size, (int)socket,
+                sockError(SOCK_ERRNO).c_str());
         }
         Close(socket);
         return -3;
@@ -164,7 +172,7 @@ int Broker::setup(unsigned short port)
     signal(SIGPIPE, signalCatch);
 #endif
 
-    SOCKET sock = -1;
+    SOCKET sock = INVALID_FD;
     if (!makeSocket(sock)) {
         LOGE("Setup to make socket fail!");
         return -1;
@@ -175,16 +183,18 @@ int Broker::setup(unsigned short port)
     local.sin_addr.s_addr = INADDR_ANY;
     local.sin_port = htons(port);
     if (::bind(sock, reinterpret_cast<struct sockaddr*>(&local), sizeof(local)) < 0) {
+        int err = SOCK_ERRNO;
         LOGE("Binding socket (%s).",
-            (errno != 0 ? strerror(errno) : std::to_string(sock).c_str()));
+            (err != 0 ? sockError(err).c_str() : std::to_string(sock).c_str()));
         Close(sock);
         return -2;
     }
 
     const int backlog = 50;
     if (listen(sock, backlog) < 0) {
+        int err = SOCK_ERRNO;
         LOGE("listening socket (%s).",
-            (errno != 0 ? strerror(errno) : std::to_string(sock).c_str()));
+            (err != 0 ? sockError(err).c_str() : std::to_string(sock).c_str()));
         Close(sock);
         return -3;
     }
@@ -225,7 +235,8 @@ void Broker::taskAllot(Networks& works, const Network& work)
     if (work.head.flag == PUBLISHER) {
         Header head{ };
         ssize_t len = recv(work.socket, reinterpret_cast<char*>(&head), sizeof(head), MSG_WAITALL);
-        if (len == 0 || (len < 0 && errno == EPIPE)) {
+        int err = SOCK_ERRNO;
+        if (len == 0 || (len < 0 && SOCK_ECLOSED(err))) {
             setOffline(works, work.socket);
             LOGW("Socket lost/closing by itself!");
         } else {
@@ -238,15 +249,16 @@ void Broker::taskAllot(Networks& works, const Network& work)
             while (m_active) {
                 Header head{ };
                 ssize_t len = ::recv(socket, reinterpret_cast<char*>(&head), HEAD_SIZE, 0);
-                if (len == 0 || (len < 0 && errno == EPIPE) || (len > 0 && head.cmd == 0xff)) {
+                int err = SOCK_ERRNO;
+                if (len == 0 || (len < 0 && SOCK_ECLOSED(err)) || (len > 0 && head.cmd == 0xff)) {
                     setOffline(works, socket);
-                    LOGW("Socket %d lost/closing by itself!", socket);
+                    LOGW("Socket %d lost/closing by itself!", (int)socket);
                     break;
                 } else {
                     if (len > 0) {
                         // Received header from subscriber
                     } else {
-                        LOGE("Error receiving data: %s", strerror(errno));
+                        LOGE("Error receiving data: %s", sockError(err).c_str());
                     }
                 }
                 wait(Time100ms);
@@ -284,8 +296,9 @@ int Broker::ProxyTask(Networks& works, const Network& work)
     do {
         ssize_t got = ::recv(work.socket, payload + len, size, 0);
         if (got < 0) {
-            if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                LOGE("Call recv(%zd) failed: %s", got, strerror(errno));
+            int err = SOCK_ERRNO;
+            if (!SOCK_EAGAIN(err)) {
+                LOGE("Call recv(%zd) failed: %s", got, sockError(err).c_str());
                 DelArr(msg->payload.content);
                 DelPtr(msg);
                 return -1;
@@ -328,15 +341,16 @@ int Broker::ProxyTask(Networks& works, const Network& work)
         if (val->head.size > 0) {
             for (auto& sub : subs) {
                 if (sub.head.topic == work.head.topic) {
-                    if (sub.active && sub.socket > 0) {
+                    if (sub.active && sockValid(sub.socket)) {
                         left = val->head.size;
                         size = HEAD_SIZE + sz1;
                         const char* buff = reinterpret_cast<const char*>(val);
                         do {
                             ssize_t sz = ::send(sub.socket, buff, size, MSG_NOSIGNAL);
-                            if (sz == 0 || (sz < 0 && errno == EPIPE)) {
+                            int err = SOCK_ERRNO;
+                            if (sz == 0 || (sz < 0 && SOCK_ECLOSED(err))) {
                                 setOffline(works, sub.socket);
-                                LOGE("Write to sock[%d], size %u failed!", sub.socket, val->head.size);
+                                LOGE("Write to sock[%d], size %u failed!", (int)sub.socket, val->head.size);
                                 break;
                             }
                             if (static_cast<size_t>(sz) == HEAD_SIZE + sz1) {
@@ -374,7 +388,7 @@ void Broker::setOffline(Networks& works, SOCKET socket)
         for (auto& wk : vec) {
             if (wk.socket == socket) {
                 wk.active = false;
-                if (wk.socket > 0) {
+                if (sockValid(wk.socket)) {
                     Close(wk.socket);
                     wk.socket = 0;
                 }
@@ -425,8 +439,9 @@ int Broker::broker()
                 struct sockaddr_in peer {};
                 auto socklen = static_cast<socklen_t>(sizeof(peer));
                 SOCKET sockNew = ::accept(m_socket, reinterpret_cast<struct sockaddr*>(&peer), &socklen);
-                if ((int)sockNew < 0) {
-                    LOGE("Socket accept (%s).", (errno != 0 ? strerror(errno) : std::to_string((int)sockNew).c_str()));
+                if (!sockValid(sockNew)) {
+                    int err = SOCK_ERRNO;
+                    LOGE("Socket accept (%s).", (err != 0 ? sockError(err).c_str() : std::to_string((int)sockNew).c_str()));
                     return -1;
                 } else {
                     int set = 1;
@@ -450,8 +465,8 @@ int Broker::broker()
                     head.size = sizeof(head);
                     head.ssid = ssid;
                     ssize_t len = ::send(sockNew, reinterpret_cast<char*>(&head), HEAD_SIZE, 0);
-                    if (len == 0 || (len < 0 && errno == EPIPE)) {
-                        LOGE("Write to sock %d ssid %llu failed!", sockNew, ssid);
+                    if (len == 0 || (len < 0 && SOCK_ECLOSED(SOCK_ERRNO))) {
+                        LOGE("Write to sock %d ssid %llu failed!", (int)sockNew, ssid);
                         continue;
                     }
                     memset(&head, 0, sizeof(head));
@@ -469,11 +484,13 @@ int Broker::broker()
                         }
                         taskAllot(m_networks, work);
                         LOGI("a new %s (%s:%d) %d set to Networks, topic=0x%04x, ssid=0x%016llx, size=%u.",
-                            GET_FLAG(head.flag), work.IP, work.PORT, work.socket, head.topic,
+                            GET_FLAG(head.flag), work.IP, work.PORT, (int)work.socket, head.topic,
                             static_cast<unsigned long long>(ssid), head.size);
                     } else {
-                        if (0 == size || errno == EINVAL || (size < 0 && errno != EAGAIN)) {
-                            LOGE("Recv fail(%zd), ssid=%llu, close %d: %s", size, head.ssid, sockNew, strerror(errno));
+                        int err = SOCK_ERRNO;
+                        if (0 == size || SOCK_EINVAL(err) || (size < 0 && !SOCK_EAGAIN(err))) {
+                            LOGE("Recv fail(%zd), ssid=%llu, close %d: %s", size, head.ssid,
+                                (int)sockNew, sockError(err).c_str());
                             Close(sockNew);
                         }
                     }
@@ -506,7 +523,7 @@ void Broker::exit()
         std::lock_guard<std::mutex> lock(m_lock);
         for (auto& wks : m_networks) {
             for (auto& wk : wks.second) {
-                if (wk.socket > 0) {
+                if (sockValid(wk.socket)) {
                     Close(wk.socket);
                     wk.socket = 0;
                 }
@@ -515,9 +532,9 @@ void Broker::exit()
         m_networks.clear();
     }
 
-    if (m_socket > 0) {
+    if (sockValid(m_socket)) {
         Close(m_socket);
-        m_socket = -1;
+        m_socket = INVALID_FD;
     }
     mq_deinit(mq);
     DelPtr(mq);

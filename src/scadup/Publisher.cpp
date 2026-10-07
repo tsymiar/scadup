@@ -8,7 +8,7 @@ using namespace Scadup;
 int Publisher::setup(const char* ip, unsigned short port)
 {
     m_socket = socket2Broker(ip, port, m_ssid, 3);
-    if (m_socket < 0) {
+    if (!sockValid(m_socket)) {
         LOGE("socket set to Broker fail, invalid socket!");
         return -1;
     }
@@ -21,20 +21,20 @@ ssize_t Publisher::broadcast(const uint8_t* data, size_t len)
         LOGE("Data is null!");
         return -1;
     }
-    if (m_socket <= 0) {
-        LOGE("Socket(%d) invalid!", m_socket);
+    if (!sockValid(m_socket)) {
+        LOGE("Socket(%d) invalid!", (int)m_socket);
         return -2;
     }
     ssize_t bytes = writes(m_socket, data, len);
     if (bytes <= 0) {
-        LOGE("Writes %d: %s", bytes, strerror(errno));
+        LOGE("Writes %d: %s", bytes, sockError(SOCK_ERRNO).c_str());
         Close(m_socket);
-        m_socket = -1;
+        m_socket = INVALID_FD;
         return -3;
     }
     wait(Time100ms);
     Close(m_socket);
-    m_socket = -1;
+    m_socket = INVALID_FD;
     return bytes;
 }
 
@@ -55,7 +55,7 @@ int Publisher::publish(uint32_t topic, const std::string& payload, ...)
     if (message == nullptr) {
         LOGE("Message malloc len %zu failed!", msgLen + 1);
         Close(m_socket);
-        m_socket = -1;
+        m_socket = INVALID_FD;
         return -1;
     }
 

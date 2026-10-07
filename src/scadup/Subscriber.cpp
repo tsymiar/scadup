@@ -7,13 +7,16 @@
 
 #include <memory>
 #include <string>
+#ifndef _WIN32
+// On Windows recv()/send()/shutdown() come from winsock2.h, pulled in by common/Scadup.h
 #include <sys/socket.h>
+#endif
 
 using namespace Scadup;
 extern const char* GET_FLAG(G_ScaFlag x);
 
 bool Subscriber::m_exit = false;
-SOCKET Subscriber::s_socket = -1;
+SOCKET Subscriber::s_socket = INVALID_FD;
 threadpool g_threadpool{ };
 
 namespace {
@@ -37,7 +40,7 @@ namespace {
 int Subscriber::setup(const char* ip, unsigned short port)
 {
     m_socket = socket2Broker(ip, port, m_ssid, 60);
-    if (m_socket < 0) {
+    if (!sockValid(m_socket)) {
         LOGE("socket set to Broker fail, invalid socket!");
         return -1;
     }
@@ -70,9 +73,9 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
     // kills the process by default -- seen as "the app vanishes as soon as the server
     // goes away mid-subscription".
     ssize_t len = ::send(m_socket, reinterpret_cast<char*>(&head), HEAD_SIZE, MSG_NOSIGNAL);
-    if (len == 0 || (len < 0 && errno == EPIPE)) {
+    if (len == 0 || (len < 0 && SOCK_ECLOSED(SOCK_ERRNO))) {
         Close(m_socket);
-        LOGE("Write to sock %d, ssid %llu failed!", m_socket, m_ssid);
+        LOGE("Write to sock %d, ssid %llu failed!", (int)m_socket, m_ssid);
         return -1;
     } else {
         g_threadpool.start(3);
@@ -89,15 +92,16 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
         const size_t size = HEAD_SIZE + sizeof(Message::Payload::status);
         memset(static_cast<void*>(&msg), 0, size);
         len = ::recv(m_socket, reinterpret_cast<char*>(&msg), size, MSG_WAITALL);
-        if (len == 0 || (len < 0 && errno != EAGAIN)) {
+        if (len == 0 || (len < 0 && !SOCK_EAGAIN(SOCK_ERRNO))) {
             // exit() shuts the socket down so this returns immediately; that is a
             // deliberate stop, not a receive failure
             if (m_exit) {
                 LOGW("Subscribe exit, recv stopped");
                 break;
             }
-            LOGE("Receive msg fail[%zd] sock=%d, %s", len, m_socket, strerror(errno));
-            if (m_socket >= 0)
+            LOGE("Receive msg fail[%zd] sock=%d, %s", len, (int)m_socket,
+                sockError(SOCK_ERRNO).c_str());
+            if (sockValid(m_socket))
                 Close(m_socket);
             state = -2;
             break;
@@ -119,7 +123,7 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
             msg.head.topic = topic;
             len = writes(m_socket, reinterpret_cast<uint8_t*>(&msg), size);
             if (len < 0) {
-                LOGE("Writes %s", strerror(errno));
+                LOGE("Writes %s", sockError(SOCK_ERRNO).c_str());
                 Close(m_socket);
                 state = -3;
                 break;
@@ -142,13 +146,14 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
                 break;
             }
             len = ::recv(m_socket, body.get(), length, 0);
-            if (len < 0 || (len == 0 && errno != EINTR)) {
+            if (len < 0 || (len == 0 && !SOCK_EINTR(SOCK_ERRNO))) {
                 if (m_exit) {
                     LOGW("Subscribe exit, body recv stopped");
                     break;
                 }
-                LOGE("Receive body fail[%zd], sock=%d, %s", len, m_socket, strerror(errno));
-                if (m_socket >= 0)
+                LOGE("Receive body fail[%zd], sock=%d, %s", len, (int)m_socket,
+                    sockError(SOCK_ERRNO).c_str());
+                if (sockValid(m_socket))
                     Close(m_socket);
                 state = -5;
                 break;
@@ -189,9 +194,9 @@ void Subscriber::keepAlive(SOCKET socket, bool& exit)
         // Same as above: keep-alive sends every 300ms, so this is the first place to hit
         // SIGPIPE when the server goes away
         ssize_t len = ::send(socket, reinterpret_cast<char*>(&head), HEAD_SIZE, MSG_NOSIGNAL);
-        if (len == 0 || (len < 0 && errno == EPIPE)) {
+        if (len == 0 || (len < 0 && SOCK_ECLOSED(SOCK_ERRNO))) {
             Close(socket);
-            LOGE("Write to sock[%d], cmd %zu failed!", socket, head.cmd);
+            LOGE("Write to sock[%d], cmd %zu failed!", (int)socket, head.cmd);
             break;
         }
         wait(Time100ms * 3);
@@ -203,7 +208,7 @@ void Subscriber::quit()
     m_exit = true;
     Header head{ };
     head.cmd = 0xff;
-    if (m_socket > 0) {
+    if (sockValid(m_socket)) {
         // MSG_NOSIGNAL: sending to an already closed peer raises SIGPIPE, which on
         // Android kills the process by default
         ::send(m_socket, reinterpret_cast<char*>(&head), HEAD_SIZE, MSG_NOSIGNAL);
@@ -211,7 +216,7 @@ void Subscriber::quit()
         Close(m_socket);
     }
     if (m_socket == s_socket) {
-        s_socket = -1;
+        s_socket = INVALID_FD;
     }
     m_socket = 0;
     g_threadpool.stop();
@@ -226,7 +231,7 @@ void Subscriber::exit()
     // read EOF and return at once; the fd is left for the loop to close in quit() --
     // closing it here would pair with quit() into a double close, which may shut down
     // an fd already reused by another connection.
-    if (s_socket > 0) {
+    if (sockValid(s_socket)) {
         shutdown(s_socket, SHUT_RDWR);
     }
     g_threadpool.stop();
