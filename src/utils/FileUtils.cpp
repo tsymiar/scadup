@@ -21,7 +21,7 @@ std::shared_ptr<FileUtils> FileUtils::instance()
     std::call_once(
         g_create_flag,
         [&]() {
-            struct make_shared_enabler : FileUtils { };
+            struct make_shared_enabler : FileUtils {};
             g_instance = std::make_shared<make_shared_enabler>();
         }
     );
@@ -30,7 +30,7 @@ std::shared_ptr<FileUtils> FileUtils::instance()
 
 std::string FileUtils::GetFileStringContent(const std::string& filename)
 {
-    std::string content{};
+    std::string content{ };
     std::ifstream file(filename, std::ios::binary);
     if (!file.fail()) {
         file.seekg(0, std::ios::end);
@@ -48,7 +48,7 @@ std::string FileUtils::GetFileStringContent(const std::string& filename)
 
 std::string FileUtils::getStrFile2string(const std::string& filename)
 {
-    std::string content{};
+    std::string content{ };
     std::ifstream file(filename);
     if (file.is_open()) {
         content.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
@@ -59,7 +59,7 @@ std::string FileUtils::getStrFile2string(const std::string& filename)
 
 std::string FileUtils::getVariable(const std::string& url, const std::string& key)
 {
-    std::string val = {};
+    std::string val = { };
     size_t pos = url.find(key);
     if (pos != std::string::npos) {
         val = url.substr(pos, url.size());

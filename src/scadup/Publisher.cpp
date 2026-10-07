@@ -47,7 +47,7 @@ int Publisher::publish(uint32_t topic, const std::string& payload, ...)
         return 0;
     }
     const size_t maxLen = payload.max_size();
-    Message msg = {};
+    Message msg = { };
     memset(static_cast<void*>(&msg), 0, sizeof(Message));
     size = (size > maxLen ? maxLen : size);
     size_t msgLen = sizeof(Message) + size - sizeof(char*) + 1;

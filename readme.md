@@ -24,7 +24,7 @@ A lightweight Pub/Sub message broker system.
 
 ```
 Publisher ──┐            ┌─── Subscriber
-Publisher ──┼──▶ Broker ┼──▶ Subscriber
+Publisher ──┼──▶ Broker─ ┼──▶ Subscriber
 Publisher ──┘            └─── Subscriber
 ```
 
@@ -33,10 +33,9 @@ Publisher ──┘            └─── Subscriber
 ## Core API
 
 ```cpp
-// Publisher
-Publisher pub;
-pub.setup("192.168.1.100", 9999);
-pub.publish(0x1234, "message");
+// Broker
+Broker::instance().setup(9999);
+Broker::instance().broker();
 
 // Subscriber
 Subscriber sub;
@@ -45,16 +44,17 @@ sub.subscribe(0x1234, [](const Message& msg) {
     printf("%s\n", msg.payload.content);
 });
 
-// Broker
-Broker::instance().setup(9999);
-Broker::instance().broker();
+// Publisher
+Publisher pub;
+pub.setup("192.168.1.100", 9999);
+pub.publish(0x1234, "message");
 ```
 
 ## Configuration
 
 `scadup.cfg`:
 ```ini
-IP=192.168.18.125
+IP=192.168.1.100
 PORT=9999
 ```
 

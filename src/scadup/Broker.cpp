@@ -92,7 +92,7 @@ int Scadup::connect(const char* ip, unsigned short port, unsigned int total)
         LOGE("Connect to make socket fail!");
         return -1;
     }
-    sockaddr_in local{};
+    sockaddr_in local{ };
     local.sin_family = AF_INET;
     local.sin_port = htons(port);
     local.sin_addr.s_addr = inet_addr(ip);
@@ -128,7 +128,7 @@ SOCKET Scadup::socket2Broker(const char* ip, unsigned short port, uint64_t& ssid
         LOGE("Connect fail: %d, %s!", socket, strerror(errno));
         return -1;
     }
-    Header head{};
+    Header head{ };
     ssize_t size = ::recv(socket, reinterpret_cast<char*>(&head), sizeof(head), 0);
     if (size > 0) {
         if (head.size == sizeof(head) && head.flag == BROKER)
@@ -139,7 +139,7 @@ SOCKET Scadup::socket2Broker(const char* ip, unsigned short port, uint64_t& ssid
         if (size == 0) {
             LOGE("Connection closed by peer, close %d: %s", socket, strerror(errno));
         } else {
-            LOGE("Recv fail(%ld), close %d: %s", size, socket, strerror(errno));
+            LOGE("Recv fail(%zd), close %d: %s", size, socket, strerror(errno));
         }
         Close(socket);
         return -3;
@@ -170,7 +170,7 @@ int Broker::setup(unsigned short port)
         return -1;
     }
 
-    struct sockaddr_in local { };
+    struct sockaddr_in local {};
     local.sin_family = AF_INET;
     local.sin_addr.s_addr = INADDR_ANY;
     local.sin_port = htons(port);
@@ -189,7 +189,7 @@ int Broker::setup(unsigned short port)
         return -3;
     }
 
-    m_msgQue = new MsgQue{};
+    m_msgQue = new MsgQue{ };
     mq_init(static_cast<MsgQue*>(m_msgQue));
     m_socket = sock;
     m_active = true;
@@ -223,7 +223,7 @@ bool Broker::checkSsid(SOCKET key, uint64_t ssid)
 void Broker::taskAllot(Networks& works, const Network& work)
 {
     if (work.head.flag == PUBLISHER) {
-        Header head{};
+        Header head{ };
         ssize_t len = recv(work.socket, reinterpret_cast<char*>(&head), sizeof(head), MSG_WAITALL);
         if (len == 0 || (len < 0 && errno == EPIPE)) {
             setOffline(works, work.socket);
@@ -236,7 +236,7 @@ void Broker::taskAllot(Networks& works, const Network& work)
         std::thread task([&](const SOCKET& socket) -> void {
             LOGI("start heart beat task");
             while (m_active) {
-                Header head{};
+                Header head{ };
                 ssize_t len = ::recv(socket, reinterpret_cast<char*>(&head), HEAD_SIZE, 0);
                 if (len == 0 || (len < 0 && errno == EPIPE) || (len > 0 && head.cmd == 0xff)) {
                     setOffline(works, socket);
@@ -259,7 +259,7 @@ void Broker::taskAllot(Networks& works, const Network& work)
 
 int Broker::ProxyTask(Networks& works, const Network& work)
 {
-    LOGI("start proxy task, works(%d), address %s:%u, size %u.",
+    LOGI("start proxy task, works(%zu), address %s:%u, size %u.",
         works[work.head.flag >= MAX_VAL && work.head.flag < MAX_VAL ? work.head.flag : NONE].size(),
         work.IP, work.PORT, work.head.size);
     const size_t sz1 = sizeof(Message::Payload::status);
@@ -267,7 +267,7 @@ int Broker::ProxyTask(Networks& works, const Network& work)
     const size_t contSize = msgSize - sz1;
 
     // heap-allocate Message; must free payload.content before delete msg
-    auto* msg = new Message{};
+    auto* msg = new Message{ };
     msg->payload.content = new(std::nothrow) char[contSize];
     if (msg->payload.content == nullptr) {
         LOGE("Payload content allocation failed!");
@@ -285,7 +285,7 @@ int Broker::ProxyTask(Networks& works, const Network& work)
         ssize_t got = ::recv(work.socket, payload + len, size, 0);
         if (got < 0) {
             if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                LOGE("Call recv(%ld) failed: %s", got, strerror(errno));
+                LOGE("Call recv(%zd) failed: %s", got, strerror(errno));
                 DelArr(msg->payload.content);
                 DelPtr(msg);
                 return -1;
@@ -404,7 +404,7 @@ void Broker::checkAlive(Networks& works, bool* active)
         }
         for (auto it = works.begin(); it != works.end(); ) {
             if (it->second.empty()) {
-                LOGI("works key(%s) is null deleted! now size=%d", GET_FLAG(it->first), works.size());
+                LOGI("works key(%s) is null deleted! now size=%zu", GET_FLAG(it->first), works.size());
                 it = works.erase(it);
             } else {
                 ++it;
@@ -422,7 +422,7 @@ int Broker::broker()
         timeval timeout = { 3, 0 };
         if (select((int)(m_socket + 1), &fdset, nullptr, nullptr, &timeout) > 0) {
             if (FD_ISSET(m_socket, &fdset)) {
-                struct sockaddr_in peer { };
+                struct sockaddr_in peer {};
                 auto socklen = static_cast<socklen_t>(sizeof(peer));
                 SOCKET sockNew = ::accept(m_socket, reinterpret_cast<struct sockaddr*>(&peer), &socklen);
                 if ((int)sockNew < 0) {
@@ -431,13 +431,13 @@ int Broker::broker()
                 } else {
                     int set = 1;
                     setsockopt(sockNew, SOL_SOCKET, SO_KEEPALIVE, reinterpret_cast<const char*>(&set), sizeof(set));
-                    Network work = {};
+                    Network work = { };
                     getpeername(sockNew, reinterpret_cast<struct sockaddr*>(&peer), &socklen);
                     char addr[INET_ADDRSTRLEN];
                     const char* ip = inet_ntop(AF_INET, &peer.sin_addr, addr, INET_ADDRSTRLEN);
                     strncpy(work.IP, ip, INET_ADDRSTRLEN);
                     work.PORT = ntohs(peer.sin_port);
-                    time_t t{};
+                    time_t t{ };
                     time(&t);
                     struct tm* lt = localtime(&t);
                     LOGI("accepted peer address [%s:%u] (@ %d/%02d/%02d-%02d:%02d:%02d)",
@@ -445,7 +445,7 @@ int Broker::broker()
                         lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday, lt->tm_hour, lt->tm_min,
                         lt->tm_sec);
                     uint64_t ssid = setSession(work.IP, work.PORT, sockNew);
-                    Header head = {};
+                    Header head = { };
                     head.flag = BROKER;
                     head.size = sizeof(head);
                     head.ssid = ssid;
@@ -468,11 +468,12 @@ int Broker::broker()
                             m_networks[head.flag].emplace_back(work);
                         }
                         taskAllot(m_networks, work);
-                        LOGI("a new %s (%s:%d) %d set to Networks, topic=0x%04x, ssid=0x%04x, size=%u.",
-                            GET_FLAG(head.flag), work.IP, work.PORT, work.socket, head.topic, ssid, head.size);
+                        LOGI("a new %s (%s:%d) %d set to Networks, topic=0x%04x, ssid=0x%016llx, size=%u.",
+                            GET_FLAG(head.flag), work.IP, work.PORT, work.socket, head.topic,
+                            static_cast<unsigned long long>(ssid), head.size);
                     } else {
                         if (0 == size || errno == EINVAL || (size < 0 && errno != EAGAIN)) {
-                            LOGE("Recv fail(%ld), ssid=%llu, close %d: %s", size, head.ssid, sockNew, strerror(errno));
+                            LOGE("Recv fail(%zd), ssid=%llu, close %d: %s", size, head.ssid, sockNew, strerror(errno));
                             Close(sockNew);
                         }
                     }

@@ -154,6 +154,9 @@ namespace Scadup {
         void keepAlive(SOCKET, bool&);
     private:
         static bool m_exit;
+        /** fd of the current subscription: exit() is static and needs to wake up the
+            subscribe loop blocked in recv() */
+        static SOCKET s_socket;
         uint64_t m_ssid = 0;
         SOCKET m_socket = -1;
     };
