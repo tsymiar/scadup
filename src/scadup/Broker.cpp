@@ -1,5 +1,7 @@
 #include "common/Scadup.h"
 
+#include <atomic>
+
 extern "C" {
 #include "../utils/msg_que.h"
 }
@@ -14,7 +16,10 @@ using namespace Scadup;
 
 char G_FlagValue[][0xc] = { "NONE", "BROKER", "PUBLISHER", "SUBSCRIBER", };
 const char* GET_FLAG(G_ScaFlag x) { return (x >= NONE && x < MAX_VAL) ? G_FlagValue[x] : G_FlagValue[0]; };
-volatile bool g_state = false;
+/** Process-wide "give up" flag: set by abandon() and by the SIGPIPE handler, read by
+    writes()/connect(). Atomic because the JNI thread, the broker thread and a signal handler
+    all touch it; bool is lock-free everywhere, so storing it in signalCatch stays safe. */
+std::atomic<bool> g_state{ false };
 
 #ifndef _WIN32
 void signalCatch(int value)
@@ -60,7 +65,7 @@ ssize_t Scadup::writes(SOCKET socket, const uint8_t* data, size_t len)
         return 0;
     if (SOCK_ECLOSED(SOCK_ERRNO))
         return -1;
-    static std::mutex mtxLck; // static lock
+    static std::mutex mtxLck;
     std::lock_guard<std::mutex> lock(mtxLck);
     auto left = (ssize_t)len;
     ssize_t sent = 0;
@@ -71,14 +76,14 @@ ssize_t Scadup::writes(SOCKET socket, const uint8_t* data, size_t len)
             if (sent < 0) {
                 int err = SOCK_ERRNO;
                 if (SOCK_EINTR(err)) {
-                    sent = 0; /* call write() again */
+                    sent = 0;
                 } else {
                     LOGE("Write to socket failed with error %d: %s", err,
                         sockError(err).c_str());
-                    return -2; /* error */
+                    return -2;
                 }
             }
-            if (sent == 0) { // handle unexpected zero or negative sent value
+            if (sent == 0) {
                 LOGE("Socket write returned 0, connection closed");
                 break;
             }
@@ -178,6 +183,18 @@ int Broker::setup(unsigned short port)
         return -1;
     }
 
+#ifndef _WIN32
+    /** Listening socket needs SO_REUSEADDR: a closed local connection leaves the port in
+        TIME_WAIT, so re-running setup() on it after exit() fails with EADDRINUSE.
+        Windows is excluded: there this option also acts as SO_REUSEPORT and would let another
+        process take over the port, which POSIX never allows. */
+    int reuse = 1;
+    if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR,
+                   reinterpret_cast<const char*>(&reuse), sizeof(reuse)) < 0) {
+        LOGW("setsockopt(SO_REUSEADDR) (%s).", sockError(SOCK_ERRNO).c_str());
+    }
+#endif
+
     struct sockaddr_in local {};
     local.sin_family = AF_INET;
     local.sin_addr.s_addr = INADDR_ANY;
@@ -271,14 +288,14 @@ void Broker::taskAllot(Networks& works, const Network& work)
 
 int Broker::ProxyTask(Networks& works, const Network& work)
 {
-    LOGI("start proxy task, works(%zu), address %s:%u, size %u.",
+    // Runs once per message, so LOGD (dropped at the default level) rather than LOGI
+    LOGD("start proxy task, works(%zu), address %s:%u, size %u.",
         works[work.head.flag >= MAX_VAL && work.head.flag < MAX_VAL ? work.head.flag : NONE].size(),
         work.IP, work.PORT, work.head.size);
     const size_t sz1 = sizeof(Message::Payload::status);
     const size_t msgSize = work.head.size - HEAD_SIZE;
     const size_t contSize = msgSize - sz1;
 
-    // heap-allocate Message; must free payload.content before delete msg
     auto* msg = new Message{ };
     msg->payload.content = new(std::nothrow) char[contSize];
     if (msg->payload.content == nullptr) {
@@ -323,7 +340,6 @@ int Broker::ProxyTask(Networks& works, const Network& work)
     mq_push(static_cast<MsgQue*>(m_msgQue), msg);
     setOffline(works, work.socket);
 
-    // forward message to matching subscribers
     std::vector<Network>& subs = works[SUBSCRIBER];
     if (subs.empty()) {
         LOGW("No subscriber to publish!");
@@ -359,7 +375,7 @@ int Broker::ProxyTask(Networks& works, const Network& work)
                             }
                             left -= static_cast<size_t>(sz);
                         } while (left > 0);
-                        LOGI("writes message to subscriber[%s:%u], size %u!", sub.IP, sub.PORT, val->head.size);
+                        LOGD("writes message to subscriber[%s:%u], size %u!", sub.IP, sub.PORT, val->head.size);
                     } else {
                         LOGW("No valid subscriber of topic %04x!", sub.head.topic);
                     }
@@ -418,7 +434,7 @@ void Broker::checkAlive(Networks& works, bool* active)
         }
         for (auto it = works.begin(); it != works.end(); ) {
             if (it->second.empty()) {
-                LOGI("works key(%s) is null deleted! now size=%zu", GET_FLAG(it->first), works.size());
+                LOGD("works key(%s) is null deleted! now size=%zu", GET_FLAG(it->first), works.size());
                 it = works.erase(it);
             } else {
                 ++it;
@@ -430,69 +446,107 @@ void Broker::checkAlive(Networks& works, bool* active)
 int Broker::broker()
 {
     fd_set fdset;
-    FD_ZERO(&fdset);
     while (m_active) {
-        FD_SET(m_socket, &fdset);
-        timeval timeout = { 3, 0 };
-        if (select((int)(m_socket + 1), &fdset, nullptr, nullptr, &timeout) > 0) {
-            if (FD_ISSET(m_socket, &fdset)) {
-                struct sockaddr_in peer {};
-                auto socklen = static_cast<socklen_t>(sizeof(peer));
-                SOCKET sockNew = ::accept(m_socket, reinterpret_cast<struct sockaddr*>(&peer), &socklen);
-                if (!sockValid(sockNew)) {
-                    int err = SOCK_ERRNO;
-                    LOGE("Socket accept (%s).", (err != 0 ? sockError(err).c_str() : std::to_string((int)sockNew).c_str()));
-                    return -1;
-                } else {
-                    int set = 1;
-                    setsockopt(sockNew, SOL_SOCKET, SO_KEEPALIVE, reinterpret_cast<const char*>(&set), sizeof(set));
-                    Network work = { };
-                    getpeername(sockNew, reinterpret_cast<struct sockaddr*>(&peer), &socklen);
-                    char addr[INET_ADDRSTRLEN];
-                    const char* ip = inet_ntop(AF_INET, &peer.sin_addr, addr, INET_ADDRSTRLEN);
-                    strncpy(work.IP, ip, INET_ADDRSTRLEN);
-                    work.PORT = ntohs(peer.sin_port);
-                    time_t t{ };
-                    time(&t);
-                    struct tm* lt = localtime(&t);
-                    LOGI("accepted peer address [%s:%u] (@ %d/%02d/%02d-%02d:%02d:%02d)",
-                        work.IP, work.PORT,
-                        lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday, lt->tm_hour, lt->tm_min,
-                        lt->tm_sec);
-                    uint64_t ssid = setSession(work.IP, work.PORT, sockNew);
-                    Header head = { };
-                    head.flag = BROKER;
-                    head.size = sizeof(head);
-                    head.ssid = ssid;
-                    ssize_t len = ::send(sockNew, reinterpret_cast<char*>(&head), HEAD_SIZE, 0);
-                    if (len == 0 || (len < 0 && SOCK_ECLOSED(SOCK_ERRNO))) {
-                        LOGE("Write to sock %d ssid %llu failed!", (int)sockNew, ssid);
-                        continue;
-                    }
-                    memset(&head, 0, sizeof(head));
-                    ssize_t size = recv(sockNew, reinterpret_cast<char*>(&head), sizeof(head), MSG_PEEK);
-                    if (size > 0 && ssid == head.ssid) {
-                        work.socket = sockNew;
-                        work.head = head;
-                        work.active = true;
-                        if (m_networks.find(head.flag) == m_networks.end()) {
-                            std::vector<Network> vec = { work };
-                            m_networks.insert(std::make_pair(head.flag, vec));
-                        } else {
-                            std::lock_guard<std::mutex> lock(m_lock);
-                            m_networks[head.flag].emplace_back(work);
-                        }
-                        taskAllot(m_networks, work);
-                        LOGI("a new %s (%s:%d) %d set to Networks, topic=0x%04x, ssid=0x%016llx, size=%u.",
-                            GET_FLAG(head.flag), work.IP, work.PORT, (int)work.socket, head.topic,
-                            static_cast<unsigned long long>(ssid), head.size);
+        /** exit() closes m_socket from the JNI thread and sets it to -1 while we are still
+            using it, so every step below goes through this snapshot -- it can change between
+            a check and its use. FD_SET/FD_ISSET with a negative fd is aborted by bionic's
+            FORTIFY ("FORTIFY: FD_ISSET: file descriptor -1 < 0"). */
+        SOCKET listener = m_socket;
+        if (!sockValid(listener)) {
+            break;
+        }
+        // select() rewrites fdset every round, so it has to be zeroed again each round
+        FD_ZERO(&fdset);
+        FD_SET(listener, &fdset);
+        // 200ms, not 3s: select() is not guaranteed to return when the fd gets closed, and a
+        // long timeout drags out the join on stop. 5 wakeups/s is negligible.
+        timeval timeout = { 0, 200 * 1000 };
+        int ready = select((int)(listener + 1), &fdset, nullptr, nullptr, &timeout);
+        if (ready <= 0) {
+            // 0 = timed out; <0 = interrupted by a signal, or exit() already closed this fd
+            // (EBADF). Either way, do not touch fdset -- go back to the loop head and re-check
+            // m_active.
+            continue;
+        }
+        /** exit() may have closed listener while we were blocked, and the fd number may even
+            have been reused by another socket, so only accept if it is still our listener. */
+        if (!m_active || m_socket != listener) {
+            continue;
+        }
+        if (FD_ISSET(listener, &fdset)) {
+            struct sockaddr_in peer {};
+            auto socklen = static_cast<socklen_t>(sizeof(peer));
+            SOCKET sockNew = ::accept(listener, reinterpret_cast<struct sockaddr*>(&peer), &socklen);
+            if (!sockValid(sockNew)) {
+                int err = SOCK_ERRNO;
+                LOGE("Socket accept (%s).", (err != 0 ? sockError(err).c_str() : std::to_string((int)sockNew).c_str()));
+                /** One failed accept() must not end the loop: the listener stays open but
+                    nothing would ever accept again, so every later subscribe fails silently.
+                    Retry when the pending connection is off the queue; when we are out of
+                    descriptors sleep first, or select() reports it readable at once and the
+                    loop spins. Anything else means the listener is gone: give up. */
+                if (SOCK_EACCEPT_RETRY(err)) {
+                    continue;
+                }
+                if (SOCK_EACCEPT_BUSY(err)) {
+                    wait(Time100ms);
+                    continue;
+                }
+                return -1;
+            } else if (!m_active) {
+                /* exit() already ran: taskAllot would leak this socket, and an accepted
+                   socket holds the listening port -- one leak breaks the next bind(). */
+                Close(sockNew);
+                continue;
+            } else {
+                int set = 1;
+                setsockopt(sockNew, SOL_SOCKET, SO_KEEPALIVE, reinterpret_cast<const char*>(&set), sizeof(set));
+                Network work = { };
+                getpeername(sockNew, reinterpret_cast<struct sockaddr*>(&peer), &socklen);
+                char addr[INET_ADDRSTRLEN];
+                const char* ip = inet_ntop(AF_INET, &peer.sin_addr, addr, INET_ADDRSTRLEN);
+                strncpy(work.IP, ip, INET_ADDRSTRLEN);
+                work.PORT = ntohs(peer.sin_port);
+                time_t t{ };
+                time(&t);
+                struct tm* lt = localtime(&t);
+                LOGI("accepted peer address [%s:%u] (@ %d/%02d/%02d-%02d:%02d:%02d)",
+                    work.IP, work.PORT,
+                    lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday, lt->tm_hour, lt->tm_min,
+                    lt->tm_sec);
+                uint64_t ssid = setSession(work.IP, work.PORT, sockNew);
+                Header head = { };
+                head.flag = BROKER;
+                head.size = sizeof(head);
+                head.ssid = ssid;
+                ssize_t len = ::send(sockNew, reinterpret_cast<char*>(&head), HEAD_SIZE, 0);
+                if (len == 0 || (len < 0 && SOCK_ECLOSED(SOCK_ERRNO))) {
+                    LOGE("Write to sock %d ssid %llu failed!", (int)sockNew, ssid);
+                    continue;
+                }
+                memset(&head, 0, sizeof(head));
+                ssize_t size = recv(sockNew, reinterpret_cast<char*>(&head), sizeof(head), MSG_PEEK);
+                if (size > 0 && ssid == head.ssid) {
+                    work.socket = sockNew;
+                    work.head = head;
+                    work.active = true;
+                    if (m_networks.find(head.flag) == m_networks.end()) {
+                        std::vector<Network> vec = { work };
+                        m_networks.insert(std::make_pair(head.flag, vec));
                     } else {
-                        int err = SOCK_ERRNO;
-                        if (0 == size || SOCK_EINVAL(err) || (size < 0 && !SOCK_EAGAIN(err))) {
-                            LOGE("Recv fail(%zd), ssid=%llu, close %d: %s", size, head.ssid,
-                                (int)sockNew, sockError(err).c_str());
-                            Close(sockNew);
-                        }
+                        std::lock_guard<std::mutex> lock(m_lock);
+                        m_networks[head.flag].emplace_back(work);
+                    }
+                    taskAllot(m_networks, work);
+                    LOGI("a new %s (%s:%d) %d set to Networks, topic=0x%04x, ssid=0x%016llx, size=%u.",
+                        GET_FLAG(head.flag), work.IP, work.PORT, (int)work.socket, head.topic,
+                        static_cast<unsigned long long>(ssid), head.size);
+                } else {
+                    int err = SOCK_ERRNO;
+                    if (0 == size || SOCK_EINVAL(err) || (size < 0 && !SOCK_EAGAIN(err))) {
+                        LOGE("Recv fail(%zd), ssid=%llu, close %d: %s", size, head.ssid,
+                            (int)sockNew, sockError(err).c_str());
+                        Close(sockNew);
                     }
                 }
             }
@@ -507,7 +561,6 @@ void Broker::exit()
     m_active = false;
     auto* mq = static_cast<MsgQue*>(m_msgQue);
 
-    // drain message queue: free content + delete Message
     {
         void* ft;
         while ((ft = mq_front(mq)) != nullptr) {
@@ -518,7 +571,6 @@ void Broker::exit()
         }
     }
 
-    // close all connected client sockets
     {
         std::lock_guard<std::mutex> lock(m_lock);
         for (auto& wks : m_networks) {

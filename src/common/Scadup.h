@@ -21,6 +21,7 @@
 typedef int socklen_t;
 #endif
 #else
+#include <cerrno>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <unistd.h>
@@ -28,9 +29,8 @@ typedef int socklen_t;
 #ifdef _WIN32
 #define  __attribute__(x)
 #define MSG_NOSIGNAL 0
-// Recent Windows SDKs do define MSG_WAITALL (0x8) and honour it; older ones do not.
-// Without the flag recv() hands back whatever is buffered, which callers already
-// tolerate: the broker loops, the subscriber skips partial headers.
+// Older Windows SDKs lack MSG_WAITALL; without it recv() returns whatever is buffered,
+// which callers already tolerate.
 #ifndef MSG_WAITALL
 #define MSG_WAITALL 0
 #endif
@@ -88,6 +88,12 @@ inline bool sockValid(SOCKET s)
 #define SOCK_EAGAIN(e)  ((e) == WSAEWOULDBLOCK)
 #define SOCK_EINTR(e)   ((e) == WSAEINTR)
 #define SOCK_EINVAL(e)  ((e) == WSAEINVAL)
+/** accept() failed but the listener is intact and the pending connection is off the queue,
+    so going round again cannot spin */
+#define SOCK_EACCEPT_RETRY(e) (SOCK_ECLOSED(e) || SOCK_EINTR(e) || SOCK_EAGAIN(e))
+/** accept() failed for lack of descriptors or buffers: retry, but sleep first, otherwise
+    select() reports the still pending connection as readable at once */
+#define SOCK_EACCEPT_BUSY(e)  ((e) == WSAEMFILE || (e) == WSAENOBUFS)
 /** strerror() has no idea what 10054 means, so ask Winsock for the text */
 inline std::string sockError(int code)
 {
@@ -112,6 +118,13 @@ inline std::string sockError(int code)
 #define SOCK_EAGAIN(e)  ((e) == EAGAIN || (e) == EWOULDBLOCK)
 #define SOCK_EINTR(e)   ((e) == EINTR)
 #define SOCK_EINVAL(e)  ((e) == EINVAL)
+/** accept() failed but the listener is intact and the pending connection is off the queue,
+    so going round again cannot spin */
+#define SOCK_EACCEPT_RETRY(e) (SOCK_ECLOSED(e) || SOCK_EINTR(e) || SOCK_EAGAIN(e) \
+                            || (e) == ECONNABORTED || (e) == EPROTO)
+/** accept() failed for lack of descriptors or memory: retry, but sleep first, otherwise
+    select() reports the still pending connection as readable at once */
+#define SOCK_EACCEPT_BUSY(e)  ((e) == EMFILE || (e) == ENFILE || (e) == ENOMEM || (e) == ENOBUFS)
 inline std::string sockError(int code) { return strerror(code); }
 #endif
 const unsigned int Time100ms = 100;

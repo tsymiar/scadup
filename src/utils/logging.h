@@ -27,10 +27,22 @@ inline const char* basename(const char* name)
 #endif
 #ifdef __ANDROID__
 #include <android/log.h>
+/** Log threshold: defaults to INFO, so LOGD is dropped at compile time and prints nothing at
+    runtime; build with -DLOG_LEVEL=ANDROID_LOG_DEBUG to see debug logs. Kept in step with the
+    main project's copy (cpp/utils/logging.h). */
+#ifndef LOG_LEVEL
+#define LOG_LEVEL ANDROID_LOG_INFO
+#endif
 #ifdef __cplusplus
-#define _LOG_(level, fmt, ...) __android_log_print(level, LOG_TAG,"(%s:%d)[%s]: " fmt, basename(const_cast<char*>(__FILE__)), __LINE__, __FUNCTION__, ##__VA_ARGS__)
+#define _LOG_(level, fmt, ...) do { if ((level) >= LOG_LEVEL) { \
+        __android_log_print(level, LOG_TAG,"(%s:%d)[%s]: " fmt, \
+            basename(const_cast<char*>(__FILE__)), __LINE__, __FUNCTION__, ##__VA_ARGS__); \
+    } } while (0)
 #else
-#define _LOG_(level, fmt, ...) __android_log_print(level, LOG_TAG,"(%s:%d)[%s]: " fmt, basename(__FILE__), __LINE__, __FUNCTION__, ##__VA_ARGS__)
+#define _LOG_(level, fmt, ...) do { if ((level) >= LOG_LEVEL) { \
+        __android_log_print(level, LOG_TAG,"(%s:%d)[%s]: " fmt, \
+            basename(__FILE__), __LINE__, __FUNCTION__, ##__VA_ARGS__); \
+    } } while (0)
 #endif
 #define LOGD(fmt, ...) _LOG_(ANDROID_LOG_DEBUG, fmt, ##__VA_ARGS__)
 #define LOGI(fmt, ...) _LOG_(ANDROID_LOG_INFO, fmt, ##__VA_ARGS__)
@@ -53,6 +65,7 @@ inline const char* basename(const char* name)
 #endif //NOLOCATE
 inline struct tm* times() { time_t now = time(NULL); static struct tm* local = NULL; local = localtime(&now); return local; }
 inline void logger(const char* fm, ...) { va_list args; va_start(args, fm); static_cast<void>(vprintf(fm, args)); va_end(args); static_cast<void>(printf("\n")); }
+#define LOGD(fmt, ...) logger(TIME_FORMAT "[DEBUG]" LOCATE_FORMAT fmt, TIME_ARGS(times()), LOCATE_ARGS(LOG_TAG),##__VA_ARGS__)
 #define LOGI(fmt, ...) logger(TIME_FORMAT "[INFO]" LOCATE_FORMAT fmt, TIME_ARGS(times()), LOCATE_ARGS(LOG_TAG),##__VA_ARGS__)
 #define LOGW(fmt, ...) logger(TIME_FORMAT "[WARN]" LOCATE_FORMAT fmt, TIME_ARGS(times()), LOCATE_ARGS(LOG_TAG),##__VA_ARGS__)
 #define LOGE(fmt, ...) logger(TIME_FORMAT "[ERROR]" LOCATE_FORMAT fmt, TIME_ARGS(times()), LOCATE_ARGS(LOG_TAG),##__VA_ARGS__)

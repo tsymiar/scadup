@@ -5,6 +5,7 @@
 #include "../utils/threadpool.hpp"
 #include "../utils/TaskBase.h"
 
+#include <atomic>
 #include <memory>
 #include <string>
 #ifndef _WIN32
@@ -14,6 +15,9 @@
 
 using namespace Scadup;
 extern const char* GET_FLAG(G_ScaFlag x);
+/** Process-wide "give up" flag from Broker.cpp; declared here so a new subscription round
+    can reset it (see g_state's own comment there for who else touches it). */
+extern std::atomic<bool> g_state;
 
 bool Subscriber::m_exit = false;
 SOCKET Subscriber::s_socket = INVALID_FD;
@@ -24,13 +28,8 @@ namespace {
         allocating hundreds of MB */
     const size_t MAX_BODY = 1u << 20;
 
-    /**
-     * A message waiting to be handed to the callback, together with its own body buffer.
-     *
-     * The message owns the body as a std::string and content points into it; the shared_ptr
-     * keeps that memory alive until the callback returns -- callbacks are queued on the pool
-     * and run later, so the body cannot be backed by the caller's per-iteration buffer.
-     */
+    /** A message plus its own body buffer: the body cannot live in the caller's per-iteration
+        buffer, because callbacks are queued on the pool and run later. */
     struct OwnedMessage {
         Message msg{ };
         std::string content{ };
@@ -39,6 +38,11 @@ namespace {
 
 int Subscriber::setup(const char* ip, unsigned short port)
 {
+    /* Without resetting these statics a Subscriber only works once per process:
+       m_exit:  set by quit()/exit(), never cleared -> a second subscribe() returns at once.
+       g_state: set by exit() via abandon() -> writes() returns 0, all publishes fail. */
+    m_exit = false;
+    g_state = false;
     m_socket = socket2Broker(ip, port, m_ssid, 60);
     if (!sockValid(m_socket)) {
         LOGE("socket set to Broker fail, invalid socket!");
@@ -128,7 +132,7 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
                 state = -3;
                 break;
             }
-            LOGI("MQ writes %zd [%llu] %s.", len, msg.head.ssid, GET_FLAG(msg.head.flag));
+            LOGD("MQ writes %zd [%llu] %s.", len, msg.head.ssid, GET_FLAG(msg.head.flag));
             continue;
         }
         if (msg.head.size > size) {
@@ -176,7 +180,7 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback)
             if (callback != nullptr) {
                 g_threadpool.enqueue([owned, callback]() { callback(owned->msg); });
             }
-            LOGI("message payload = [%s]-[%s]", owned->msg.payload.status,
+            LOGD("message payload = [%s]-[%s]", owned->msg.payload.status,
                 owned->msg.payload.content);
         }
     } while (flag);

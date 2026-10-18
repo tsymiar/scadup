@@ -1,7 +1,3 @@
-//
-// Created by tsymiar on 2022/6/8.
-//
-
 #ifndef FILEUTILS_H
 #define FILEUTILS_H
 

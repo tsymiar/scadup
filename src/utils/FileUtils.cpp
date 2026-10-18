@@ -1,7 +1,3 @@
-//
-// Created by tsymiar on 2022/6/8.
-//
-
 #include "FileUtils.h"
 #include <mutex>
 #include <fstream>
