@@ -60,3 +60,8 @@ target*
 *.exe
 *.so
 out
+
+#ignore vscode AI rules
+.github/instructions/*
+*.json
+*.gitignore
