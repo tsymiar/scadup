@@ -18,5 +18,5 @@ if errorlevel 1 exit /b 1
 cmake --build build --config Release
 if errorlevel 1 exit /b 1
 
-echo Build output: build\test\Release\test.exe
+echo Build output: build\test\Release\scadup.exe
 endlocal

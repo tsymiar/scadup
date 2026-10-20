@@ -19,7 +19,9 @@ add_definitions(${OPTION})
 # CMAKE_CXX_STANDARD covers this: MSVC wants /std:c++11, GCC/Clang wants -std=c++11
 
 file(GLOB TEST_FILE "*test*.*")
-set(TARGET test)
+# Named after the library on purpose: this is the scadup command line tool, not a unit
+# test runner. CMake does not append a second .exe when the name already ends in one.
+set(TARGET scadup.exe)
 include_directories(${CMAKE_SOURCE_DIR}/target/include)
 
 if (NOT WIN32)

@@ -1,7 +1,9 @@
 #include <scadup.h>
 #include <logging.h>
 #include <fileutil.h>
+#include <cstdlib>
 #include <iostream>
+#include <string>
 
 using namespace std;
 using namespace Scadup;
@@ -11,9 +13,9 @@ extern const char* GET_FLAG(Scadup::G_ScaFlag x);
 static void usage()
 {
     cout << "Usage:" << endl
-        << "1         -- run as broker" << endl
-        << "2 [topic] -- run as subscriber" << endl
-        << "3 [topic] [payload] -- run as publisher messaging to broker" << endl
+        << "1                         -- run as broker" << endl
+        << "2 [topic] [dst]           -- run as subscriber (dst: one-to-one id, default: local IP)" << endl
+        << "3 [topic] [payload] [dst] -- run as publisher messaging to broker (dst empty = broadcast)" << endl
         << "3 [topic] [-f [filename]] -- run as publisher send file content" << endl;
     exit(0);
 }
@@ -63,8 +65,15 @@ int main(int argc, char* argv[])
         break;
     case SUBSCRIBER:
         state = subscriber.setup(IP.c_str(), PORT);
-        if (state == 0)
-            state = subscriber.subscribe(topic);
+        if (state == 0) {
+            uint64_t dst = 0;
+            if (argc > 3) {
+                dst = strtoull(argv[3], NULL, 0);
+            }
+            cout << "subscriber ssid=0x" << hex << subscriber.ssid()
+                << ", one-to-one id=0x" << subscriber.dstId() << dec << endl;
+            state = static_cast<int>(subscriber.subscribe(topic, nullptr, dst));
+        }
         break;
     case PUBLISHER:
         state = publisher.setup(IP.c_str(), PORT);
@@ -73,10 +82,17 @@ int main(int argc, char* argv[])
             message = argv[4];
             state = publisher.publish(topic, FileUtils::instance()->GetFileStringContent(message));
         } else {
-            if (argc == 4) {
+            if (argc >= 4) {
                 message = string(argv[3]);
             }
-            state = publisher.publish(topic, message);
+            uint64_t dst = 0;
+            if (argc > 4) {
+                dst = strtoull(argv[4], NULL, 0);
+            }
+            state = publisher.publish(topic, message, dst);
+        }
+        if (state > 0 && publisher.delivered() >= 0) {
+            cout << "delivered to " << publisher.delivered() << " subscriber(s)" << endl;
         }
         break;
     default:
