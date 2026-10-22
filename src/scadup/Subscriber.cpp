@@ -15,8 +15,7 @@
 #include "../utils/threadpool.hpp"
 
 using namespace Scadup;
-/** Process-wide "give up" flag from Broker.cpp, declared here so a new subscription round
-    can reset it (see g_state's own comment there for who else touches it). */
+/** "Give up" flag from Broker.cpp; reset here so a new subscription round can reconnect */
 extern std::atomic<bool> g_state;
 
 bool Subscriber::m_exit = false;
@@ -24,8 +23,8 @@ SOCKET Subscriber::s_socket = INVALID_FD;
 threadpool g_threadpool{ };
 
 namespace {
-    /** A message plus its own body buffer: the body cannot live in the caller's
-        per-iteration buffer, because callbacks are queued on the pool and run later. */
+    /** A message plus its own body: callbacks are queued on the pool and run later, so
+        the body cannot live in the caller's buffer */
     struct OwnedMessage {
         Message msg{ };
         std::string content{ };
@@ -34,9 +33,8 @@ namespace {
 
 int Subscriber::setup(const char* ip, unsigned short port)
 {
-    /* Without resetting these statics a Subscriber only works once per process:
-       m_exit:  set by quit()/exit(), never cleared -> a second subscribe() returns at once.
-       g_state: set by exit() via abandon() -> connect() gives up, every reconnect fails. */
+    /* Reset the statics, or a Subscriber works only once per process: m_exit makes a
+       second subscribe() return at once, g_state makes every reconnect fail. */
     m_exit = false;
     g_state = false;
     m_socket = socket2Broker(ip, port, m_ssid, CONNECT_TRIES);
@@ -45,9 +43,8 @@ int Subscriber::setup(const char* ip, unsigned short port)
         return -1;
     }
     s_socket = m_socket;
-    /* Default one-to-one address: the local address of the connection to the broker,
-       which is what the broker sees as our peer, so a publisher can target us with it
-       (see the dst argument of Publisher::publish). */
+    /* Default one-to-one id: the local address the broker sees for this connection,
+       which is what a publisher passes as dst to target us. */
     struct sockaddr_in local {};
     socklen_t len = sizeof(local);
     if (getsockname(m_socket, reinterpret_cast<struct sockaddr*>(&local), &len) == 0) {
@@ -158,8 +155,7 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback, uint64_t d
         }
         body[length] = '\0';
 
-        // The message owns its body: content points into owned->content, and the
-        // shared_ptr keeps it alive until the callback runs on another thread
+        // The message owns its body: the shared_ptr keeps it alive until the callback runs
         auto owned = std::make_shared<OwnedMessage>();
         owned->msg.head = msg.head;
         memcpy(owned->msg.payload.status, msg.payload.status, sz1);
@@ -176,8 +172,8 @@ ssize_t Subscriber::subscribe(uint32_t topic, RECV_CALLBACK callback, uint64_t d
         if (callback != nullptr) {
             g_threadpool.enqueue([owned, callback]() { callback(owned->msg); });
         } else {
-            // Without a callback the message would be dropped silently; log it so a
-            // bare subscribe() is still usable. %.64s: a payload may be 4MB.
+            // No callback: log it, so a bare subscribe() is still usable.
+            // %.64s keeps a 4MB payload out of the log.
             LOGI("message topic=0x%04x status=[%s] payload=[%.64s]",
                 owned->msg.head.topic, owned->msg.payload.status,
                 owned->msg.payload.content != nullptr ? owned->msg.payload.content : "");
@@ -229,10 +225,9 @@ void Subscriber::exit()
 {
     abandon();
     m_exit = true;
-    // m_exit alone is not enough: the subscribe loop sits in recv() and would only wake
-    // on the next packet. shutdown makes it read EOF at once. The fd is left for quit()
-    // to close -- closing it here would pair with quit() into a double close, which may
-    // shut down an fd already reused by another connection.
+    // m_exit alone is not enough: the loop sits in recv(). shutdown() makes it read EOF
+    // at once; quit() closes the fd -- closing here would double-close a possibly reused
+    // fd.
     if (sockValid(s_socket)) {
         shutdown(s_socket, SHUT_RDWR);
     }

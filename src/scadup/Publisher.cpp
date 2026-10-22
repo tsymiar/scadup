@@ -33,8 +33,7 @@ int Publisher::setup(const char* ip, unsigned short port)
         LOGE("socket set to Broker fail, invalid socket!");
         return -1;
     }
-    // Registration handshake: the broker waits for this header before it treats the
-    // connection as a publisher
+    // Registration: the broker treats the connection as a publisher only after this header
     Header head{ };
     head.flag = PUBLISHER;
     head.ssid = m_ssid;
@@ -59,7 +58,7 @@ int Publisher::setup(const char* ip, unsigned short port)
 
 int Publisher::publish(uint32_t topic, const std::string& payload, uint64_t dst)
 {
-    // %.64s: a payload may now be 4MB, and dumping it all into the log helps nobody
+    // %.64s keeps a 4MB payload out of the log
     LOGI("begin publish to BROKER, topic=0x%04x, dst=0x%llx, ssid=0x%llx, msg=\"%.64s\"",
         topic, static_cast<unsigned long long>(dst),
         static_cast<unsigned long long>(m_ssid), payload.c_str());
@@ -109,8 +108,7 @@ int Publisher::waitAck()
     Header head{ };
     ssize_t len = sockRecvAll(m_socket, &head, HEAD_SIZE);
     if (len != (ssize_t)HEAD_SIZE) {
-        // No complete report, so drop the connection: the leftover bytes of a half
-        // header would corrupt the next one.
+        // Drop the connection: the leftover bytes of a half header would corrupt the next
         LOGE("No delivery report (%zd), close %d: %s", len, (int)m_socket,
             sockError(SOCK_ERRNO).c_str());
         Close(m_socket);

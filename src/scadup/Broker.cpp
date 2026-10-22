@@ -9,6 +9,8 @@
 #include <vector>
 #ifndef _WIN32
 #include <csignal>
+#include <fcntl.h>
+#include <ifaddrs.h>
 #endif
 
 #define LOG_TAG "Broker"
@@ -16,10 +18,9 @@
 
 using namespace Scadup;
 
-/** Process-wide "give up" flag: set by abandon() and by the SIGPIPE handler, and only
-    ever read by connect(). It deliberately does not stop writes(): broker and clients
-    share this process, so honouring it there would kill every relay write for good once
-    Subscriber::exit() called abandon(). */
+/** "Give up" flag: set by abandon() and the SIGPIPE handler, read only by connect().
+    writes() ignores it on purpose -- broker and clients share this process, so honouring
+    it there would kill every relay write once Subscriber::exit() ran. */
 std::atomic<bool> g_state{ false };
 
 char G_FlagValue[][0xc] = { "NONE", "BROKER", "PUBLISHER", "SUBSCRIBER", };
@@ -39,8 +40,7 @@ void signalCatch(int value)
 
 /* --- socket primitives declared in common/Scadup.h ---------------------------------- */
 
-/** Winsock has been started once per process by makeSocket(). Closing a socket must not
-    call WSACleanup(): that tears Winsock down while the listener and the peers are up. */
+/** No WSACleanup() here: it would tear Winsock down while the listener and peers are up */
 void Close(SOCKET x)
 {
 #ifdef _WIN32
@@ -50,9 +50,8 @@ void Close(SOCKET x)
 #endif
 }
 
-/** Winsock's SOCKET is an unsigned handle, so INVALID_SOCKET (~0) never shows up in a
-    `< 0` test; 0 counts as closed because that is what this code stores once it closes
-    a descriptor itself. */
+/** Winsock's SOCKET is unsigned, so INVALID_SOCKET (~0) never shows up in a `< 0` test;
+    0 counts as closed because that is what this code stores after closing */
 bool sockValid(SOCKET s)
 {
 #ifdef _WIN32
@@ -84,16 +83,11 @@ std::string sockError(int code)
 #endif
 }
 
-/** Sleeps for tms milliseconds. It used to sleep microseconds while every caller passed
-    milliseconds: the keep-alive became a ~3 kHz flood, the offline sweep spun, and the
-    connect backoff grew without bound. */
 void Wait(unsigned int tms)
 {
     std::this_thread::sleep_for(std::chrono::milliseconds(tms));
 }
 
-/** Reads exactly len bytes; fewer means EOF or an error, and the stream can no longer be
-    trusted, so callers drop the connection. */
 ssize_t sockRecvAll(SOCKET sock, void* data, size_t len)
 {
     auto* buf = static_cast<char*>(data);
@@ -115,8 +109,7 @@ ssize_t Scadup::writes(SOCKET socket, const void* data, size_t len)
 {
     if (data == nullptr || len == 0)
         return 0;
-    // No process-wide lock here on purpose: writes to different peers must not serialise
-    // against each other. Network::sockLock is the right granularity -- one socket.
+    // No global lock: Network::sockLock (one socket) is the right granularity
     const char* buf = static_cast<const char*>(data);
     size_t sent = 0;
     while (sent < len) {
@@ -140,8 +133,8 @@ ssize_t Scadup::writes(SOCKET socket, const void* data, size_t len)
     return static_cast<ssize_t>(sent);
 }
 
-/** Winsock takes milliseconds straight, POSIX wants a timeval -- that is the only
-    difference between the two directions, hence one helper for both. */
+/** Winsock takes milliseconds straight, POSIX wants a timeval -- the only difference
+    between the two directions, hence one helper for both */
 bool setSockTimeout(SOCKET sock, unsigned int ms, SockTimeout dir)
 {
     const int option = (dir == TIMEOUT_RECV) ? SO_RCVTIMEO : SO_SNDTIMEO;
@@ -180,12 +173,19 @@ bool Scadup::makeSocket(SOCKET& socket)
             (err != 0 ? sockError(err).c_str() : std::to_string(socket).c_str()));
         status = false;
     }
+#ifndef _WIN32
+    else if (fcntl(socket, F_SETFD, FD_CLOEXEC) < 0) {
+        // Keeps the fd out of forked/exec'd children: one holding the listener would
+        // leave the port bound after exit(), so the documented restart fails.
+        LOGW("Setting FD_CLOEXEC on socket %d fail(%s).", (int)socket,
+            sockError(SOCK_ERRNO).c_str());
+    }
+#endif
     return status;
 }
 
-/** Exponential backoff between connect() attempts, capped: uncapped doubling both
-    outgrows the unsigned int the delay is passed in (garbage past ~26 attempts) and makes
-    an unreachable broker look like a hang. */
+/** Capped: uncapped doubling both outgrows the unsigned int the delay is passed in and
+    makes an unreachable broker look like a hang */
 static unsigned int connectBackoff(unsigned int tries)
 {
     unsigned int backoff = Time100ms;
@@ -211,8 +211,13 @@ int Scadup::connect(const char* ip, unsigned short port, unsigned int total)
     LOGI("------ Connecting to %s:%d ------", ip, port);
     unsigned int tries = 0;
     while (::connect(sock, reinterpret_cast<struct sockaddr*>(&local), sizeof(local)) == (-1)) {
-        if (g_state)
-            break;
+        if (g_state) {
+            // Never hand back a socket that failed to connect: the caller reads the
+            // banner from it with no timeout and would block forever.
+            LOGE("Connect to %s:%d abandoned, closing the failed socket.", ip, port);
+            Close(sock);
+            return -2;
+        }
         if (tries >= total) {
             int err = SOCK_ERRNO;
             LOGE("Retrying to connect (times=%d, %s).", tries,
@@ -233,13 +238,52 @@ int Scadup::connect(const char* ip, unsigned short port, unsigned int total)
     return sock;
 }
 
+/** True when `ip` is one of this host's own IPv4 addresses, loopback excluded -- a
+    127.0.0.1 self-connection is a legitimate single-device test. Flags the usual
+    misconfiguration of pointing the broker at the device's own LAN IP, which gets EPIPE. */
+static bool isOwnLanAddress(const char* ip)
+{
+#ifdef _WIN32
+    (void)ip;
+    return false;
+#else
+    if (ip == nullptr)
+        return false;
+    if (std::strncmp(ip, "127.", 4) == 0)
+        return false;
+    struct ifaddrs* ifs = nullptr;
+    if (getifaddrs(&ifs) != 0)
+        return false;
+    bool found = false;
+    for (struct ifaddrs* cur = ifs; cur != nullptr; cur = cur->ifa_next) {
+        if (cur->ifa_addr == nullptr || cur->ifa_addr->sa_family != AF_INET)
+            continue;
+        const auto* sin = reinterpret_cast<const struct sockaddr_in*>(cur->ifa_addr);
+        char buf[INET_ADDRSTRLEN] = { 0 };
+        if (inet_ntop(AF_INET, &sin->sin_addr, buf, sizeof(buf)) != nullptr
+            && std::strcmp(buf, ip) == 0) {
+            found = true;
+            break;
+        }
+    }
+    freeifaddrs(ifs);
+    return found;
+#endif
+}
+
 SOCKET Scadup::socket2Broker(const char* ip, unsigned short port, uint64_t& ssid, uint32_t timeout)
 {
+    if (isOwnLanAddress(ip))
+        LOGW("Broker address %s:%u is THIS device's own LAN IP -- point it at the peer's IP, "
+             "not your own (self-connection to a LAN IP fails with EPIPE).", ip, port);
     SOCKET socket = connect(ip, port, timeout);
     if (!sockValid(socket)) {
         LOGE("Connect fail: %d, %s!", (int)socket, sockError(SOCK_ERRNO).c_str());
         return -1;
     }
+    // Bound the banner read: a broker that accepts but never answers, or a connection
+    // that died mid-handshake, must not block the caller forever.
+    setSockTimeout(socket, REGISTER_TIMEOUT_MS, TIMEOUT_RECV);
     Header head{ };
     // Read the whole header before trusting any field of it
     ssize_t size = sockRecvAll(socket, &head, HEAD_SIZE);
@@ -248,8 +292,10 @@ SOCKET Scadup::socket2Broker(const char* ip, unsigned short port, uint64_t& ssid
         Close(socket);
         return -3;
     }
-    // A mismatched banner leaves ssid at 0, so the broker rejects the registration that
-    // follows -- better than carrying a bogus session id around.
+    // Blocking reads again: subscribers rely on recv() blocking until a whole message
+    // arrives, and a quiet connection is never dropped.
+    setSockTimeout(socket, 0, TIMEOUT_RECV);
+    // Leave ssid at 0 on a mismatched banner: the broker then rejects the registration
     if (head.size == HEAD_SIZE && head.flag == BROKER)
         ssid = head.ssid;
     else
@@ -283,10 +329,9 @@ int Broker::setup(unsigned short port)
     }
 
 #ifndef _WIN32
-    /** Listening socket needs SO_REUSEADDR: a closed local connection leaves the port in
-        TIME_WAIT, so re-running setup() on it after exit() fails with EADDRINUSE.
-        Windows is excluded: there this option also acts as SO_REUSEPORT and would let
-        another process take over the port, which POSIX never allows. */
+    /** Lets setup() rebind after exit() while the port sits in TIME_WAIT. Windows is
+        excluded: there it also acts as SO_REUSEPORT and would let another process take
+        the port. */
     int reuse = 1;
     if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR,
                    reinterpret_cast<const char*>(&reuse), sizeof(reuse)) < 0) {
@@ -342,8 +387,7 @@ uint64_t Broker::setSession(const std::string& addr, unsigned short port, SOCKET
 
 void Broker::taskAllot(const Network& work)
 {
-    // One thread per peer: a slow or stuck subscriber must not block the accept loop,
-    // other publishers, or other subscribers.
+    // One thread per peer: a stuck subscriber must not block the accept loop or others
     std::thread task([this](Network peer) -> void {
         handlePeer(peer);
         }, work);
@@ -364,9 +408,8 @@ void Broker::handlePeer(Network peer)
     }
 }
 
-/** Reads exactly len bytes. A receive timeout with nothing read yet only means the peer
-    is idle; a timeout in the middle of a message is fatal, because from there on the
-    stream is out of sync. */
+/** Reads exactly len bytes. A timeout with nothing read yet only means idle; one in the
+    middle of a message is fatal, the stream is out of sync from there on. */
 static bool recvExact(SOCKET sock, void* data, size_t len, const std::atomic<bool>& active)
 {
     auto* buf = static_cast<char*>(data);
@@ -434,8 +477,7 @@ void Broker::handlePublisher(Network pub)
                 msg.payload.content = body.data() + sz1;
         }
         const int delivered = dispatch(msg);
-        // The report doubles as the delivery count, which is what makes one-to-one
-        // verifiable on the publishing side.
+        // The ack doubles as the delivery count, which is what makes unicast verifiable
         Header ack{ };
         ack.flag = BROKER;
         ack.cmd = (delivered > 0 || head.dst == 0) ? CMD_ACK : CMD_ERROR;
@@ -443,7 +485,14 @@ void Broker::handlePublisher(Network pub)
         ack.topic = head.topic;
         ack.ssid = head.ssid;
         ack.dst = head.dst;
-        if (writes(pub.socket, &ack, HEAD_SIZE) != (ssize_t)HEAD_SIZE) {
+        // Under sockLock: exit() closes publisher sockets under the same lock, so an
+        // ack cannot land on a reused fd
+        bool ackOk = false;
+        if (pub.sockLock != nullptr) {
+            std::lock_guard<std::mutex> lock(*pub.sockLock);
+            ackOk = (writes(pub.socket, &ack, HEAD_SIZE) == (ssize_t)HEAD_SIZE);
+        }
+        if (!ackOk) {
             LOGE("ack to publisher %s:%u failed", pub.IP, pub.PORT);
             break;
         }
@@ -495,15 +544,15 @@ static int sendMessage(SOCKET sock, const Message& msg)
 
 int Broker::dispatch(const Message& msg)
 {
-    // Snapshot the matching subscribers, then write without holding m_lock: each peer's
-    // own sockLock is what keeps its socket usable while it is being written to.
+    // Snapshot the subscribers, then write without m_lock: each peer's sockLock is what
+    // keeps its socket usable
     std::vector<Network> subs;
     {
         std::lock_guard<std::mutex> lock(m_lock);
         auto it = m_networks.find(SUBSCRIBER);
         if (it != m_networks.end()) {
             for (const auto& sub : it->second) {
-                if (!sub.active)
+                if (sub.active == nullptr || !sub.active->load())
                     continue;
                 if (msg.head.dst != 0) {
                     // one-to-one: match the registered dst id, or the ssid directly
@@ -525,10 +574,12 @@ int Broker::dispatch(const Message& msg)
     for (auto& sub : subs) {
         bool ok = false;
         if (sub.sockLock != nullptr) {
-            // Lock order is always m_lock -> sockLock, never the other way round; hence
-            // setOffline() below runs after this lock is out of scope.
+            // Lock order is always m_lock -> sockLock; hence setOffline() runs after
+            // this lock is out of scope.
             std::lock_guard<std::mutex> lock(*sub.sockLock);
-            if (sub.active && sockValid(sub.socket))
+            // Re-check here: setOffline() may have closed this fd while we waited for
+            // the lock, and the number may belong to a newer connection
+            if (sub.active != nullptr && sub.active->load() && sockValid(sub.socket))
                 ok = (sendMessage(sub.socket, msg) == 0);
         }
         if (ok) {
@@ -573,7 +624,10 @@ void Broker::setOffline(uint64_t id)
         for (auto& wk : wks.second) {
             if (wk.id != id)
                 continue;
-            wk.active = false;
+            // Flip the shared flag before closing: a dispatch() waiting for sockLock
+            // re-checks it and must not write to a reused fd
+            if (wk.active != nullptr)
+                wk.active->store(false);
             // Close under the peer's sockLock so no send is in flight on it
             if (wk.sockLock != nullptr) {
                 std::lock_guard<std::mutex> sl(*wk.sockLock);
@@ -597,7 +651,7 @@ void Broker::checkAlive(std::atomic<bool>* active)
         for (auto& work : m_networks) {
             std::vector<Network>& vec = work.second;
             for (auto it = vec.begin(); it != vec.end(); ) {
-                if (!it->active) {
+                if (it->active == nullptr || !it->active->load()) {
                     LOGI("delete offline client %s:%u", it->IP, it->PORT);
                     it = vec.erase(it);
                 } else {
@@ -620,26 +674,25 @@ int Broker::broker()
 {
     fd_set fdset;
     while (m_active) {
-        /** exit() closes m_socket from another thread and leaves it invalid, so every
-            round goes through this snapshot: it can change between a check and its use,
-            and FD_SET/FD_ISSET on a negative fd aborts under bionic's FORTIFY. */
+        /** exit() closes m_socket from another thread, so re-read it every round:
+            FD_SET on a negative fd aborts under bionic's FORTIFY */
         SOCKET listener = m_socket;
         if (!sockValid(listener)) {
             break;
         }
         FD_ZERO(&fdset); // select() rewrites fdset, so it is zeroed again every round
         FD_SET(listener, &fdset);
-        // 200ms, not 3s: select() need not return when the fd gets closed, and a long
-        // timeout drags out the join on stop. 5 wakeups/s costs nothing.
+        // 200ms: select() need not return when the fd gets closed, and a long timeout
+        // drags out the stop
         timeval timeout = { 0, 200 * 1000 };
         int ready = select((int)(listener + 1), &fdset, nullptr, nullptr, &timeout);
         if (ready <= 0) {
-            // Timed out, interrupted by a signal, or exit() already closed this fd
-            // (EBADF). Do not touch fdset: go back and re-check m_active.
+            // Timed out, interrupted, or exit() already closed this fd (EBADF):
+            // go back and re-check m_active
             continue;
         }
-        /** exit() may have closed listener while we were blocked and the number may even
-            have been reused, so only accept if it is still our listener. */
+        /** Only accept if it is still our listener: exit() may have closed it and the
+            number may have been reused */
         if (!m_active || m_socket != listener) {
             continue;
         }
@@ -650,11 +703,11 @@ int Broker::broker()
             if (!sockValid(sockNew)) {
                 int err = SOCK_ERRNO;
                 LOGE("Socket accept (%s).", (err != 0 ? sockError(err).c_str() : std::to_string((int)sockNew).c_str()));
-                /** One failed accept() must not end the loop: the listener stays open but
-                    nothing would ever accept again, so every later subscribe would fail
-                    silently. Retry after a transient error (sleeping first when we are out
-                    of descriptors, or select() reports it readable at once and this spins);
-                    anything else means the listener itself is gone. */
+                /** One failed accept() must not end the loop: nothing would ever accept
+                    again and every later subscribe would fail silently. Retry after a
+                    transient error (sleeping first when out of descriptors, or select()
+                    reports it readable at once and this spins); anything else means the
+                    listener is gone. */
                 if (SOCK_EACCEPT_RETRY(err)) {
                     continue;
                 }
@@ -664,14 +717,17 @@ int Broker::broker()
                 }
                 return -1;
             } else if (!m_active) {
-                /* exit() already ran: handing this socket to a handler would leak it, and
-                   an accepted socket holds the listening port -- one leak breaks the next
-                   bind(). */
+                /* exit() already ran: an accepted socket holds the listening port, so
+                   handing it to a handler would break the next bind() */
                 Close(sockNew);
                 continue;
             } else {
                 int set = 1;
                 setsockopt(sockNew, SOL_SOCKET, SO_KEEPALIVE, reinterpret_cast<const char*>(&set), sizeof(set));
+#ifndef _WIN32
+                // Same as the listener: an exec'd child must not keep this peer alive
+                fcntl(sockNew, F_SETFD, FD_CLOEXEC);
+#endif
                 // A peer that never registers must not stall the accept loop
                 setSockTimeout(sockNew, REGISTER_TIMEOUT_MS, TIMEOUT_RECV);
                 Network work = { };
@@ -688,7 +744,12 @@ int Broker::broker()
                 head.ssid = ssid;
                 ssize_t len = writes(sockNew, &head, HEAD_SIZE);
                 if (len != (ssize_t)HEAD_SIZE) {
-                    LOGE("Write to sock %d ssid %llu failed!", (int)sockNew, ssid);
+                    int err = SOCK_ERRNO;
+                    // Expected: the peer connected and vanished before the banner
+                    // (ECONNRESET / EPIPE / ETIMEDOUT). Info, not warn -- a client that
+                    // drops mid-handshake must not look like a broker fault.
+                    LOGI("sock %d (peer %s:%u) left before banner: sent %zd, err %d: %s.",
+                        (int)sockNew, work.IP, work.PORT, len, err, sockError(err).c_str());
                     Close(sockNew);
                     continue;
                 }
@@ -702,7 +763,7 @@ int Broker::broker()
                     continue;
                 }
                 if (head.ssid != ssid) {
-                    LOGE("Registration ssid 0x%llx mismatch (expect 0x%llx), close %d",
+                    LOGE("Registration ssid 0x%08x mismatch (expect 0x%08x), close %d",
                         static_cast<unsigned long long>(head.ssid),
                         static_cast<unsigned long long>(ssid), (int)sockNew);
                     Close(sockNew);
@@ -716,15 +777,14 @@ int Broker::broker()
                 }
                 work.socket = sockNew;
                 work.head = head;
-                work.active = true;
+                work.active = std::make_shared<std::atomic<bool>>(true);
                 work.sockLock = std::make_shared<std::mutex>();
                 // Steady state: a handler thread notices a dead peer within a second
                 // instead of blocking on it forever
                 setSockTimeout(sockNew, PEER_TIMEOUT_MS, TIMEOUT_RECV);
                 setSockTimeout(sockNew, PEER_TIMEOUT_MS, TIMEOUT_SEND);
-                // The id is what the handler thread will use to take this peer back
-                // offline; the socket number alone would be ambiguous once the OS
-                // recycles it for the next connection.
+                // The id, not the socket number, takes this peer offline: the number is
+                // recycled for the next connection
                 work.id = addNetwork(work);
                 taskAllot(work);
                 LOGI("a new %s (%s:%d) %d set to Networks, topic=0x%04x, dst=0x%llx, ssid=0x%016llx, size=%u.",
@@ -754,7 +814,8 @@ void Broker::exit()
                         wk.socket = 0;
                     }
                 }
-                wk.active = false;
+                if (wk.active != nullptr)
+                    wk.active->store(false);
             }
         }
         m_networks.clear();

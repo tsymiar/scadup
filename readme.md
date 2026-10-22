@@ -52,6 +52,10 @@ A payload may be up to `MAX_PAYLOAD` (4 MB) and may contain zeros: `content` is
 NUL-terminated, so read `msg.payload.length` bytes from it instead of relying on
 `strlen()`.
 
+`subscribe()` blocks until `quit()` or the static `exit()` stops it; drop the callback and
+the message is only logged. `setup()` retries a broker that does not answer — `Subscriber`
+for ~13 s, `Publisher` for three attempts — and returns negative once it gives up.
+
 ## One-to-one (unicast)
 
 `dst == 0` (default) broadcasts to every subscriber of the topic; anything else targets a
@@ -86,6 +90,9 @@ and `delivered()` reports how many subscribers were reached; the broker answers
   different subscribers are written to concurrently. A peer that stops reading is dropped
   after a send timeout rather than blocking a publisher.
 * Subscribers do not poll: `recv()` blocks until a whole message arrives.
+* Callbacks run on an internal pool of three threads, so a slow callback cannot stall the
+  receive loop. Messages are copied before they are queued, so they outlive the loop that
+  read them.
 * Idle helpers that fell out of use live in [`src/utils/common.h`](src/utils/common.h).
 
 ## Lifecycle
@@ -105,12 +112,16 @@ and `delivered()` reports how many subscribers were reached; the broker answers
 
 ## Configuration
 
-`scadup.cfg`:
+The library takes the broker address as an argument, so it reads no config file —
+`scadup.cfg` belongs to the test tool in [`test`](test), which looks for it next to the
+binary:
 
 ```ini
 IP=192.168.1.100
 PORT=9999
 ```
+
+A missing key falls back to `127.0.0.1` / `9999`.
 
 ## Build
 
@@ -120,6 +131,9 @@ make.bat                                         # Windows (cmd / PowerShell)
 cmake -DANDROID=1 -DANDROID_ABI=arm64-v8a ..     # Android
 ```
 
+Windows builds in Release, so the tool lands at `build\test\Release\scadup.exe`. Either way
+the library is `target/lib/libscadup.*` and its headers are copied to `target/include`.
+
 For Windows the build links `WS2_32` automatically. Winsock is started once per process
 (`WSAStartup` in `Scadup::makeSocket`); socket handles are unsigned, so validity is tested
 with `sockValid()` / `INVALID_FD` rather than `< 0`, and errors are read through
@@ -127,6 +141,9 @@ with `sockValid()` / `INVALID_FD` rather than `< 0`, and errors are read through
 `strerror`.
 
 ## Usage
+
+The build publishes `scadup.h`, `logging.h` and `fileutil.h` into `target/include`, so a
+consumer only needs `#include <scadup.h>` and a link against the library.
 
 * Test case: [test](test)
 * Example project: [Device2Device](https://github.com/tsymiar/Device2Device/tree/main/app/src/main/cpp)

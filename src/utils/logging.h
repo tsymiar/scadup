@@ -2,8 +2,8 @@
 #define SCADUP_LOGGING_H
 
 #ifdef _MSC_VER
-// MSVC flags localtime()/gmtime() as unsafe (C4996); this is a printf-style logger
-// where the _s variants would add nothing but noise.
+// MSVC flags localtime()/gmtime() as unsafe (C4996); the _s variants add nothing to a
+// printf-style logger.
 #pragma warning(disable:4996)
 #endif
 
@@ -22,14 +22,12 @@ inline const char* basename(const char* name)
 }
 #else
 #include <libgen.h>
-//#pragma GCC diagnostic ignored "-Wwritable-strings"
 #pragma GCC diagnostic ignored "-Wformat"
 #endif
 #ifdef __ANDROID__
 #include <android/log.h>
-/** Log threshold: defaults to INFO, so LOGD is dropped at compile time and prints nothing at
-    runtime; build with -DLOG_LEVEL=ANDROID_LOG_DEBUG to see debug logs. Kept in step with the
-    main project's copy (cpp/utils/logging.h). */
+/** Log threshold: LOGD is dropped unless built with -DLOG_LEVEL=ANDROID_LOG_DEBUG.
+    Kept in step with the main project's copy (cpp/utils/logging.h). */
 #ifndef LOG_LEVEL
 #define LOG_LEVEL ANDROID_LOG_INFO
 #endif

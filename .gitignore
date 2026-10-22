@@ -61,7 +61,6 @@ target*
 *.so
 out
 
-#ignore vscode AI rules
-.github/instructions/*
-*.json
-*.gitignore
+
+# vscode AI rules
+.github/**/*.md

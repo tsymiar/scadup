@@ -31,9 +31,8 @@ private:
     std::vector<std::thread> m_workers = { };
     std::queue<std::function<void()>> m_tasks = { };
     std::mutex m_queueMutex{ };
-    /** Serializes stop(): quit() on the subscribing thread and exit() on the JNI thread
-        may stop the pool at the same time; two threads joining the same std::thread
-        objects throws system_error -> terminate */
+    /** Serializes stop(): two threads joining the same std::thread objects throws
+        system_error -> terminate */
     std::mutex m_thrMutex{ };
     std::condition_variable m_condition{ };
     std::atomic<bool> m_stopPool;
@@ -45,16 +44,13 @@ threadpool::~threadpool() {}
 
 void threadpool::start(size_t threads)
 {
-    // Serialized with stop(): if this cleared m_stopPool back to false while stop() is
-    // joining the workers, they would keep taking tasks and never return, so the join
-    // would block forever (ANR).
+    // Serialized with stop(): clearing the flag while stop() joins would keep the workers
+    // taking tasks, so the join never returns.
     std::unique_lock<std::mutex> guard(m_thrMutex);
     {
         std::unique_lock<std::mutex> lock(m_queueMutex);
-        // Do not emplace_back again once started: after stop() the std::thread objects
-        // stay in m_workers, so appending would add new threads while the next stop()
-        // joins objects that were already joined (std::system_error -> terminate).
-        // Restarting only needs the stop flag cleared.
+        // A restart only clears the flag: appending threads would make the next stop()
+        // join already-joined objects (std::system_error -> terminate).
         if (!m_workers.empty()) {
             m_stopPool = false;
             return;
@@ -75,8 +71,7 @@ void threadpool::start(size_t threads)
                     this->m_tasks.pop();
                 }
                 // An exception escaping a task reaches the top of the thread and calls
-                // std::terminate -- which shows up as "the app dies on any click after
-                // subscribing once".
+                // std::terminate.
                 try {
                     task();
                 } catch (const std::exception& e) {
@@ -94,8 +89,8 @@ void threadpool::enqueue(F&& f)
 {
     {
         std::unique_lock<std::mutex> lock(m_queueMutex);
-        // Drop the task when the pool is stopped: no worker will ever pick it up
-        // (the threads are gone), so everything it captured just leaks.
+        // Drop the task when stopped: no worker will pick it up and everything it
+        // captured would leak
         if (m_stopPool) return;
         m_tasks.emplace(std::forward<F>(f));
     }
@@ -114,9 +109,8 @@ auto threadpool::enqueue(F&& f, Args&&... args)
     {
         std::unique_lock<std::mutex> lock(m_queueMutex);
 
-        // Pool stopped (the previous subscription quit / the user closed): drop the task
-        // and return an invalid future. Throwing here is not an option -- an exception
-        // travelling from SubscribeTask to the top of a std::thread is std::terminate.
+        // Stopped: drop the task and return an invalid future. Throwing is not an option
+        // -- an exception reaching the top of a std::thread is std::terminate.
         if (m_stopPool) {
             task.reset();
             return std::future<return_type>();
@@ -133,8 +127,8 @@ void threadpool::stop()
     std::unique_lock<std::mutex> guard(m_thrMutex);
     {
         std::unique_lock<std::mutex> lock(m_queueMutex);
-        // A second stop() would join already-joined threads and throw std::system_error
-        // -> terminate. Return early once everything is already stopped.
+        // A second stop() would join already-joined threads (std::system_error ->
+        // terminate), so return early once everything is already stopped
         if (m_stopPool && m_workers.empty()) return;
         m_stopPool = true;
     }
@@ -144,8 +138,8 @@ void threadpool::stop()
             worker.join();
         }
     }
-    // Clear: start() uses "is m_workers empty" to decide whether to spawn threads.
-    // Keeping terminated objects would make the next start/stop hit the double join again.
+    // start() uses "is m_workers empty" to decide whether to spawn, so terminated
+    // objects must not stay
     m_workers.clear();
     std::unique_lock<std::mutex> lock(m_queueMutex);
     std::queue<std::function<void()>> empty;
