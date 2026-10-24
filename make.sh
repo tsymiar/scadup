@@ -11,4 +11,6 @@ cd build
 cmake ..
 make -j8
 cd -
+# Smoke test: one publish() must reach one live subscriber
+bash ci/smoke-test.sh build || exit 1
 fi

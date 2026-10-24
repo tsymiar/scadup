@@ -4,10 +4,12 @@
 
 A lightweight Pub/Sub message broker system.
 
+[![CI](https://github.com/tsymiar/scadup/actions/workflows/cmake-multi-platform.yml/badge.svg)](https://github.com/tsymiar/scadup/actions/workflows/cmake-multi-platform.yml)
+
 ## Quick Start
 
 ```bash
-./make.sh                                   # builds build/test/scadup.exe + target/lib/libscadup.*
+./make.sh                                   # builds build/test/scadup.exe + target/lib/libscadup.*, then smoke tests
 
 ./build/test/scadup.exe 1                   # broker (blocks)
 ./build/test/scadup.exe 2 1234              # subscriber on topic 0x1234
@@ -16,7 +18,9 @@ A lightweight Pub/Sub message broker system.
 ./build/test/scadup.exe 3 1234 "Hi" 0x050010ac   # publish to one subscriber
 ```
 
-Run it from `build/test/`, where `scadup.cfg` is copied next to the binary.
+The tool reads `scadup.cfg` from the working directory and falls back to `127.0.0.1:9999`
+per missing key. The build copies it to `build/test/`, so run the tool from there — on
+Windows the Release layout nests the binary one level deeper in `build/test/Release/`.
 
 ## Architecture
 
@@ -24,9 +28,30 @@ Run it from `build/test/`, where `scadup.cfg` is copied next to the binary.
 Publisher ──┐            ┌─── Subscriber
 Publisher ──┼──▶ Broker──┼─── Subscriber
 Publisher ──┘            └─── Subscriber
+setup() / publish()       setup() / subscribe(topic, cb) → cb(Message)
 ```
 
-![message_broker](doc/message_broker.png)
+![architecture](doc/architecture.svg)
+
+### Wire protocol
+
+Framing is `[Header][status][content]`, with `Header::size` covering all of it:
+
+```
+struct Header { rsvp, cmd, flag, size, topic, ssid, dst }
+```
+
+| `cmd` | Direction | Meaning |
+| :---- | :-------- | :------ |
+| `CMD_DATA` `0x00` | both | carries a payload (publish / re-subscribe) |
+| `CMD_ACK` `0x01` | broker → publisher | delivered, `size` holds the count |
+| `CMD_ERROR` `0xee` | broker → publisher | unicast matched no subscriber |
+| `CMD_KEEPALIVE` `0x10` | subscriber → broker | liveness tick, every 300 ms |
+| `CMD_QUIT` `0xff` | both | orderly close |
+
+`ssid` is the session id the broker assigns at accept time (`port | key | ip`); the peer
+echoes it in its registration header. Reads are exact-length, so a truncated frame is
+detected and the connection dropped instead of desynchronising the stream.
 
 ## Core API
 
@@ -113,8 +138,8 @@ and `delivered()` reports how many subscribers were reached; the broker answers
 ## Configuration
 
 The library takes the broker address as an argument, so it reads no config file —
-`scadup.cfg` belongs to the test tool in [`test`](test), which looks for it next to the
-binary:
+`scadup.cfg` belongs to the test tool in [`test`](test), which looks for it in the
+working directory:
 
 ```ini
 IP=192.168.1.100
@@ -126,13 +151,21 @@ A missing key falls back to `127.0.0.1` / `9999`.
 ## Build
 
 ```bash
-./make.sh                                        # Linux / macOS
-make.bat                                         # Windows (cmd / PowerShell)
+./make.sh                                        # Linux / macOS: build + smoke test
+make.bat                                         # Windows: build + smoke test
 cmake -DANDROID=1 -DANDROID_ABI=arm64-v8a ..     # Android
 ```
 
-Windows builds in Release, so the tool lands at `build\test\Release\scadup.exe`. Either way
+Windows builds in Release, so with the Visual Studio generator the tool lands at
+`build\test\Release\scadup.exe` (Ninja puts it directly in `build\test\`). Either way
 the library is `target/lib/libscadup.*` and its headers are copied to `target/include`.
+
+Both scripts end with the smoke test in [`ci`](ci): a broker, a subscriber and a publisher
+on a private loopback port (a private working directory, so the repo's `scadup.cfg` cannot
+redirect it), where one publish must reach one live subscriber. CI uses the same entry
+points — [GitHub Actions](.github/workflows/cmake-multi-platform.yml) and
+[Azure Pipelines](azure-pipelines.yml) run them on Linux (gcc + clang), macOS and Windows,
+so the round trip is verified on every platform.
 
 For Windows the build links `WS2_32` automatically. Winsock is started once per process
 (`WSAStartup` in `Scadup::makeSocket`); socket handles are unsigned, so validity is tested

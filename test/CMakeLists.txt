@@ -20,7 +20,7 @@ add_definitions(${OPTION})
 
 file(GLOB TEST_FILE "*test*.*")
 # Named after the library on purpose: this is the scadup command line tool, not a unit
-# test runner. CMake does not append a second .exe when the name already ends in one.
+# test runner.
 set(TARGET scadup.exe)
 include_directories(${CMAKE_SOURCE_DIR}/target/include)
 
@@ -57,12 +57,10 @@ else()
     target_link_libraries(${TARGET} ${EXTERN})
 endif()
 
-# The tests include the published headers from target/include, which the library writes
-# during its POST_BUILD step, so the library has to finish first. target_link_libraries()
-# implies that only when the built library is actually linked, and that is skipped here
-# (this executable compiles the sources itself, and find_library() runs at configure time
-# when the library does not exist yet). Without this the test can compile while
-# target/include is still missing, hitting C1083 on a clean checkout.
+# The test compiles the sources itself: the library (which publishes the headers to
+# target/include) must be an explicit dependency, or a clean checkout hits C1083.
+set_target_properties(${TARGET} PROPERTIES SUFFIX "")
+
 add_dependencies(${TARGET} scadup)
 
 file(COPY scadup.cfg DESTINATION ${CMAKE_BINARY_DIR}/test)

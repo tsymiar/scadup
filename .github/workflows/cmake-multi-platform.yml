@@ -1,5 +1,5 @@
-# This starter workflow is for a CMake project running on multiple platforms. There is a different starter workflow if you just want a single platform.
-# See: https://github.com/actions/starter-workflows/blob/main/ci/cmake-single-platform.yml
+# scadup CI -- build the library and the tool on every supported platform.
+# make.sh / make.bat end with the smoke test, so it runs on all three.
 name: CMake on multiple platforms
 
 on:
@@ -9,57 +9,41 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build:
+  posix:
+    name: ${{ matrix.os }} (${{ matrix.cxx }})
     runs-on: ${{ matrix.os }}
 
     strategy:
-      # Set fail-fast to false to ensure that feedback is delivered for all matrix combinations. Consider changing this to true when your workflow is stable.
       fail-fast: false
-
-      # Set up a matrix to run the following 3 configurations:
-      # 1. <Windows, Release, latest MSVC compiler toolchain on the default runner image, default generator>
-      # 2. <Linux, Release, latest GCC compiler toolchain on the default runner image, default generator>
-      # 3. <Linux, Release, latest Clang compiler toolchain on the default runner image, default generator>
-      #
       matrix:
-        os: [ubuntu-latest, windows-latest]
-        build_type: [Release]
         include:
           - os: ubuntu-latest
-            c_compiler: gcc
-            cpp_compiler: g++
+            cxx: g++
           - os: ubuntu-latest
-            c_compiler: clang
-            cpp_compiler: clang++
-          - os: windows-latest
-            c_compiler: msvc
-            cpp_compiler: msvc
+            cxx: clang++
+          - os: macos-latest
+            cxx: clang++
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
-    - name: Set reusable strings
-      # Turn repeated input strings (such as the build output directory) into step outputs. These step outputs can be used throughout the workflow file.
-      id: strings
-      shell: bash
-      run: |
-        echo "build-output-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
+    - name: Build and smoke test
+      env:
+        CXX: ${{ matrix.cxx }}
+      # bash make.sh: does not need the executable bit, and honours CXX
+      run: bash make.sh
 
-    - name: Configure CMake
-      # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
-      # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
-      run: >
-        cmake -B ${{ steps.strings.outputs.build-output-dir }}
-        -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
-        -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
-        -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
-        -S ${{ github.workspace }}
-        ${{ matrix.os == 'windows-latest' && '-A x64' || '' }}
+  windows:
+    name: windows-latest (msvc)
+    runs-on: windows-latest
 
-    - name: Build
-      # Build your program with the given configuration. Note that --config is needed because the default Windows generator is a multi-config generator (Visual Studio generator).
-      run: cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build_type }}
+    steps:
+    - uses: actions/checkout@v4
 
-    - name: clean
-      working-directory: ${{ github.workspace }}
-      run: ./make.sh clean
+    - name: Disable runner firewall
+      # The broker listens during the smoke test; the runner firewall would
+      # raise an interactive prompt and hang the job (ephemeral VM).
+      run: netsh advfirewall set allprofiles state off
+
+    - name: Build and smoke test
+      run: .\make.bat

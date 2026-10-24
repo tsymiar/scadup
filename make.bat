@@ -19,4 +19,10 @@ cmake --build build --config Release
 if errorlevel 1 exit /b 1
 
 echo Build output: build\test\Release\scadup.exe
+
+REM Smoke test: one publish() must reach one live subscriber
+powershell -ExecutionPolicy Bypass -File ci\smoke-test.ps1
+if errorlevel 1 exit /b 1
+
+echo Smoke test passed.
 endlocal

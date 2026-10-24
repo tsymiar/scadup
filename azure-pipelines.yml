@@ -1,20 +1,35 @@
-# Starter pipeline
-# Start with a minimal pipeline that you can customize to build and deploy your code.
-# Add steps that build, run tests, deploy, and more:
-# https://aka.ms/yaml
-
+# scadup CI -- build the library and the tool on Linux, macOS and Windows.
+# make.sh / make.bat end with the smoke test, so it runs on all three.
 trigger:
 - main
 
 pool:
   vmImage: ubuntu-latest
 
-steps:
-  - task: 'CMake@1'
-    inputs:
-      cmakeArgs: ..
-  - task: CmdLine@2
-    inputs:
-      script: |
-        cd build
-        make all
+jobs:
+- job: Build
+  pool:
+    vmImage: $(imageName)
+  strategy:
+    matrix:
+      linux:
+        imageName: 'ubuntu-latest'
+      macos:
+        imageName: 'macOS-latest'
+      windows:
+        imageName: 'windows-latest'
+
+  steps:
+  - checkout: self
+
+  - script: netsh advfirewall set allprofiles state off
+    condition: eq(variables['Agent.OS'], 'Windows')
+    displayName: 'Disable runner firewall'
+
+  - script: bash make.sh
+    condition: ne(variables['Agent.OS'], 'Windows')
+    displayName: 'Build and smoke test (Linux / macOS)'
+
+  - script: make.bat
+    condition: eq(variables['Agent.OS'], 'Windows')
+    displayName: 'Build and smoke test (Windows)'
